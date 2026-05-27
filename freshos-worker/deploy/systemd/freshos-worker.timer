@@ -1,0 +1,10 @@
+[Unit]
+Description=Run FreshOS V1 daily worker every morning
+
+[Timer]
+OnCalendar=*-*-* 06:00:00
+Persistent=true
+Unit=freshos-worker.service
+
+[Install]
+WantedBy=timers.target

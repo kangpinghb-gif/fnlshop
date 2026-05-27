@@ -1,0 +1,15 @@
+[Unit]
+Description=FreshOS V1 daily worker
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=freshos
+Group=freshos
+WorkingDirectory=/opt/freshos-worker
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/freshos-worker/.venv/bin/python -m jobs.run_daily --config /etc/freshos/settings.toml
+
+[Install]
+WantedBy=multi-user.target

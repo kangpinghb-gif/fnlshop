@@ -1,0 +1,13 @@
+[project]
+name = "freshos-worker"
+version = "0.1.0"
+description = "FreshOS V1 cloud worker for fresh food order suggestions."
+requires-python = ">=3.9"
+dependencies = [
+    "openpyxl>=3.1",
+    "psycopg[binary]>=3.2",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

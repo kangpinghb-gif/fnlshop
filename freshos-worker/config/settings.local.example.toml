@@ -1,0 +1,14 @@
+[database]
+enabled = true
+dsn = "postgresql://freshos:change-me@127.0.0.1:5432/freshos"
+
+[paths]
+data_dir = "./data"
+report_dir = "./reports"
+
+[notify]
+provider = "none"
+webhook_url = ""
+
+[jobs]
+default_business_date = ""

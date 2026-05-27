@@ -1,0 +1,8 @@
+.DS_Store
+freshos-worker.zip
+
+freshos-worker/.pytest_cache/
+freshos-worker/**/__pycache__/
+freshos-worker/**/*.pyc
+freshos-worker/reports/
+freshos-worker/config/settings.toml

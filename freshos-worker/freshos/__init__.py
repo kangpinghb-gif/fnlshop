@@ -1,0 +1,2 @@
+"""FreshOS worker package."""
+
