@@ -5,6 +5,40 @@ description: Use when working with the 盛和 A+ 数据分析系统 / 大表哥 
 
 # 盛和 A+ 大表哥数据导出
 
+## FreshOS V1 Production Quick Path
+
+Use this path first when Hermes is exporting data for the FreshOS V1 production worker.
+
+1. Log in to 盛和 A+ and open `/KIT/homePage/main4`.
+2. Select one export target from the decision table below.
+3. Switch to the required report type.
+4. Set the date range for that target.
+5. Select only the required fields using the field selection protocol.
+6. Apply the category filter: 大分类编码 in `40,42`.
+7. Run `customerSearchAll()`.
+8. Export with `exportByDownloadCenter()`.
+9. Save the file under `/var/lib/freshos/data/` with the required production filename.
+10. Verify file exists, file size is non-zero, headers match the target, and rows only contain `40/42`.
+11. Trigger the FreshOS worker commands with explicit `--input` paths.
+
+Do not start with DOM/XHR extraction. Those are fallback-only options when normal export fails.
+
+## Target Decision Table
+
+| Target | Report type | Required fields | Selection approach | Output |
+| --- | --- | --- | --- | --- |
+| FreshOS base mapping | type=1 期间查询报表 | 店铺编号, 店铺名称, 店铺状态, 商品编码, 商品名称, 大分类编码, 大分类名称, 中分类编码, 中分类名称, 销售单位, 保质期限(天) | data_column first, label fallback | `dabiaoge_base_40_42_YYYY-MM-DD.xlsx` |
+| FreshOS sales daily | type=3 期间趋势报表 preferred; type=1 only for period totals | 店铺编号, 店铺名称, 商品编码, 商品名称, 大分类编码, 销量, 销售额 | data_column first, render then retry, label fallback | `dabiaoge_sales_40_42_YYYY-MM-DD.xlsx` |
+| FreshOS inventory/loss | type=1 期间查询报表 | 店铺编号, 店铺名称, 商品编码, 商品名称, 库存数量（期末）, 报损数量, 报损金额, 盘盈盘亏数量 | data_column first, label fallback | `dabiaoge_inventory_loss_40_42_YYYY-MM-DD.xlsx` |
+| FreshOS purchase/receipts | type=1 期间查询报表 | 店铺编号, 店铺名称, 商品编码, 商品名称, 订货数量, 收货数量, 总收货数量, 总退货+调出数量 | data_column first, label fallback | `dabiaoge_purchase_receipts_40_42_YYYY-MM-DD.xlsx` |
+| FreshOS inventory snapshot | type=5 今日实时报表 if stable; otherwise type=1 inventory field fallback | 店铺编号, 店铺名称, 商品编码, 商品名称, 库存数量, 在途数量 | label fallback may be required after type switch | `dabiaoge_inventory_snapshot_40_42_YYYY-MM-DD.xlsx` |
+| Low gross margin review | type=1 期间查询报表 | 大分类编码, 中分类名称, 商品名称, 销售额, 毛利率 | data_column first, label fallback | analysis-only, not required by V1 worker |
+| Sales change TOP review | type=2 期间对比报表 | 店铺名称, 大分类编码, 中分类名称, 商品名称, 销售额 | data_column first, verify selected fields, label fallback | analysis-only, not required by V1 worker |
+| Zero-sales fresh review | type=3 期间趋势报表 | 店铺名称, 中分类名称, 商品名称, 销量, 总收货数量 | render then retry, label fallback | analysis-only, not required by V1 worker |
+| Vegetable movement review | type=1 期间查询报表 | 店铺名称, 大分类名称, 中分类编码, 中分类名称, 商品编码, 商品名称, 销售额 | label fallback by panel if needed | analysis-only, not required by V1 worker |
+
+Report types `6` 时段查询报表 and `7` 支付查询报表 are not part of the FreshOS V1 worker chain. Do not spend production export time on them unless the user explicitly asks for time-slot or payment analysis.
+
 ## Safety Rules
 
 - Do not store usernames, passwords, SMS codes, one-time codes, cookies, or session tokens in this skill or project files.
@@ -85,8 +119,8 @@ Useful report types:
 | 2 | 期间对比报表 | Compares two periods and adds difference/rate columns |
 | 3 | 期间趋势报表 | Multiple-day trend, often one column per day |
 | 5 | 今日实时报表 | Real-time report with different field names |
-| 6 | 时段查询报表 | Time-slot analysis |
-| 7 | 支付查询报表 | Payment analysis |
+| 6 | 时段查询报表 | Time-slot analysis; not used by FreshOS V1 production exports |
+| 7 | 支付查询报表 | Payment analysis; not used by FreshOS V1 production exports |
 
 Example:
 
@@ -119,7 +153,25 @@ $('#endTime2').val('2026/05/08');
 
 ## Field Selection
 
-Prefer selecting fields by visible label or `data_column`, not by unstable DOM index.
+Use this protocol after every report type switch:
+
+1. Trigger field DOM rendering:
+   - run `document.querySelectorAll('input[data_column]')`
+   - expand the relevant panels if the expected fields are not present yet
+2. Try selecting by stable `data_column` first.
+3. Verify the selected fields are checked.
+4. For any missing field, retry by visible label inside the relevant panel.
+5. If a field still cannot be selected, mark it as unavailable for that report type and do not silently substitute another business metric.
+
+Avoid unstable DOM indexes. Prefer `data_column`; use visible labels as fallback.
+
+Known field selection behavior:
+
+- type=1 is the most stable for `data_column` selection.
+- type=2 can require verification and retry after switching report type.
+- type=3 can require a render trigger before sales/receipt fields appear.
+- type=5 can require visible-label selection after switching from another report type.
+- type=6 and type=7 are not used by FreshOS V1 production exports unless explicitly requested.
 
 Safe selection pattern:
 
@@ -307,7 +359,9 @@ Export notes:
 - Closing the dialog may not cancel backend generation.
 - If export fails, use DOM/XHR extraction fallback.
 
-## Extraction Fallbacks
+## Fallback Extraction Only
+
+Use this section only when the normal export path fails or the page cannot generate a downloadable file. Production Hermes runs should prefer XLSX export through `exportByDownloadCenter()`.
 
 DOM table extraction:
 
@@ -759,13 +813,13 @@ Check these before treating the export as usable:
 
 ## Known Traps
 
-1. Do not click main category checkboxes.
-2. Some inputs are readonly; normal typing may not work.
-3. Visible 查询 buttons may be unreliable; use `customerSearchAll()`.
-4. Export can silently truncate too many columns.
-5. Category panels can be mutually exclusive when expanded, but selected fields remain.
-6. Checkbox DOM indexes are unstable; use label text or `data_column`.
-7. Browser sessions can expire; ask the user to log in again.
-8. Gross margin rate can be a decimal, for example `0.0133` means `1.33%`.
-9. Listed 售价 may be marked price, not actual transaction price; calculate actual average price as 销售额 / 销量 when needed.
-10. Mid-month closing inventory amount may be zero before accounting close.
+1. Field selection: do not click main category checkboxes; expand panels and select child fields only.
+2. Field selection: checkbox DOM indexes are unstable; use `data_column` first and visible labels as fallback.
+3. Report switching: after switching type, trigger field DOM rendering and verify every required field is checked.
+4. Date/filter inputs: some inputs are readonly; set values through page JavaScript and dispatch events.
+5. Query action: visible 查询 buttons may be unreliable; use `customerSearchAll()`.
+6. Export size: too many columns can silently truncate exports; keep each export lean.
+7. Export flow: closing the export dialog may not cancel backend generation; wait and verify the final file.
+8. Session state: browser sessions can expire; ask the user to log in again instead of bypassing verification.
+9. Business metrics: 毛利率 can be decimal, for example `0.0133` means `1.33%`; listed 售价 may be marked price, not actual transaction price.
+10. Accounting timing: mid-month closing inventory amount may be zero before accounting close; prefer quantity fields for FreshOS V1 inventory logic.
