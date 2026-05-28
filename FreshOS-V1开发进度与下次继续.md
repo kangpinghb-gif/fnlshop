@@ -9,9 +9,9 @@ V1 采用云端自动订货助手形态：
 ```text
 云服务器 freshos-worker
   ↓
-Hermes 定时执行
+Hermes 自动导出大表哥 40/42 数据
   ↓
-自动抓取/导入大表哥和订单数据
+Hermes 触发 freshos-worker 导入订单 / 盘点 / 大表哥导出文件
   ↓
 FreshOS 计算订货建议和库存风险
   ↓

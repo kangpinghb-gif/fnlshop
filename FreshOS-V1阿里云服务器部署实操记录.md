@@ -666,9 +666,8 @@ systemctl restart postgresql
 
 下一步优先做：
 
-1. 配置 `systemd timer` 或 Hermes 定时执行 `jobs.run_daily`
-2. 接正式大表哥 `40/42` 基础数据
+1. 配置 Hermes 自动导出大表哥 `40/42` 数据，并触发 `jobs.run_daily`
+2. 保留 `systemd timer` 作为阿里云服务器兜底补跑方案
 3. 验证正式门店 / 商品 / 门店商品关系导入
 4. 验证正式销售、库存、订货、收货、订单、盘点数据导入
 5. 配置企业微信或飞书 webhook，替换 `provider=none`
-

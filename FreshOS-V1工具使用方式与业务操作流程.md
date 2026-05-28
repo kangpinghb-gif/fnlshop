@@ -11,9 +11,9 @@ FreshOS V1 的使用方式：
 ```text
 阿里云 ECS 服务器
   ↓
-freshos-worker 定时运行
+Hermes 定时触发 freshos-worker
   ↓
-导入大表哥 / 订单 / 盘点数据
+Hermes 自动导出大表哥数据，freshos-worker 导入订单 / 盘点数据
   ↓
 计算库存口径、销量预测、订货建议、库存风险
   ↓
@@ -26,7 +26,7 @@ freshos-worker 定时运行
 
 使用入口：
 
-- 日常自动入口：Hermes 或服务器 systemd 定时任务。
+- 日常自动入口：Hermes。
 - 手工补跑入口：服务器命令行。
 - 结果查看入口：企业微信 / 飞书消息、服务器报表目录。
 - 异常处理入口：导入异常明细文件、服务器日志、后续人工维护模板。
@@ -39,7 +39,8 @@ freshos-worker 定时运行
 | 采购负责人 | 订货建议明细、已订未到、缺货风险 | 确认或调整订货量 |
 | 区域督导 | 门店风险排行、库存可信度低商品 | 跟进门店盘点和执行 |
 | 门店店长 / 生鲜主管 | 门店订货建议、风险商品 | 执行订货、反馈异常 |
-| 系统维护人员 | 导入异常、任务日志、服务器状态 | 补数据、重跑任务、处理失败 |
+| Hermes | 大表哥导出、定时触发任务 | 自动获取 40/42 数据并触发 worker |
+| 系统维护人员 | 导入异常、任务日志、服务器状态 | 维护 Hermes 配置、重跑任务、处理失败 |
 
 ## 三、每日自动流程
 
@@ -47,7 +48,7 @@ freshos-worker 定时运行
 
 | 时间 | 任务 | 业务含义 | 产出 |
 | --- | --- | --- | --- |
-| 06:00 | 抓取 / 准备大表哥数据 | 获取昨日销售、库存、损耗、订货收货 | 原始导出文件 |
+| 06:00 | Hermes 导出大表哥数据 | 获取昨日销售、库存、损耗、订货收货 | `/var/lib/freshos/data/` 下的原始导出文件 |
 | 06:10 | 导入基础档案 | 更新门店、商品、门店商品关系 | `stores`、`products`、`store_products` |
 | 06:15 | 导入销售日汇总 | 形成销售历史 | `sales_daily` |
 | 06:16 | 导入库存 / 损耗 | 形成库存和报损口径 | `inventory_loss_daily` |
@@ -138,7 +139,7 @@ FreshOS 订货建议 - 2026-05-26
 
 - 能通过商品别名、商品编码、门店名称修复的，优先修复基础数据。
 - 订单文件字段缺失的，反馈给供应商或订单整理人员。
-- 大表哥字段变化的，更新导入字段映射。
+- 大表哥字段变化的，更新 Hermes 导出字段配置和 FreshOS 导入字段映射。
 
 ## 五、系统维护人员怎么操作
 
@@ -216,6 +217,42 @@ cd /opt/freshos-worker
 - `inventory_risks rows>=1`
 - 报表目录生成 CSV 文件
 
+### 6. Hermes 大表哥导出配置维护
+
+V1 默认由 Hermes 负责大表哥导出，不要求系统维护人员每天手工导出。
+
+Hermes 每天应导出并放置到：
+
+```text
+/var/lib/freshos/data/
+```
+
+建议文件命名：
+
+```text
+dabiaoge_base_40_42_YYYY-MM-DD.xlsx
+dabiaoge_sales_40_42_YYYY-MM-DD.xlsx
+dabiaoge_inventory_loss_40_42_YYYY-MM-DD.xlsx
+dabiaoge_purchase_receipts_40_42_YYYY-MM-DD.xlsx
+dabiaoge_inventory_snapshot_40_42_YYYY-MM-DD.xlsx
+```
+
+Hermes 必须保证：
+
+- 登录大表哥使用授权账号。
+- 不保存明文密码到项目文件。
+- 大分类编码筛选为 `40,42`。
+- 字段使用 FreshOS 预设字段。
+- 文件导出成功后再触发对应导入任务。
+- 导出失败时写入任务日志并推送失败提醒。
+
+系统维护人员只负责：
+
+- 首次授权登录。
+- 更新字段预设。
+- 处理验证码 / 登录失效。
+- 处理导出失败和字段变化。
+
 ## 六、人工介入流程
 
 ### 1. 订货建议需要调整
@@ -281,11 +318,11 @@ V1 当前先通过报表人工调整，不做页面确认。
 
 | 文件 | 来源 | 使用任务 |
 | --- | --- | --- |
-| 大表哥基础数据 | 大表哥导出 | `import_dabiaoge_base` |
-| 大表哥销售日汇总 | 大表哥导出 | `import_dabiaoge_daily --report-type sales` |
-| 大表哥库存损耗 | 大表哥导出 | `import_dabiaoge_daily --report-type inventory_loss` |
-| 大表哥订货收货 | 大表哥导出 | `import_dabiaoge_daily --report-type purchase_receipts` |
-| 大表哥库存快照 | 大表哥导出 | `import_dabiaoge_daily --report-type inventory_snapshot` |
+| 大表哥基础数据 | Hermes 自动导出 | `import_dabiaoge_base` |
+| 大表哥销售日汇总 | Hermes 自动导出 | `import_dabiaoge_daily --report-type sales` |
+| 大表哥库存损耗 | Hermes 自动导出 | `import_dabiaoge_daily --report-type inventory_loss` |
+| 大表哥订货收货 | Hermes 自动导出 | `import_dabiaoge_daily --report-type purchase_receipts` |
+| 大表哥库存快照 | Hermes 自动导出 | `import_dabiaoge_daily --report-type inventory_snapshot` |
 | 生鲜订单 Excel | 供应商 / 采购 | `import_orders` |
 | 人工盘点修正模板 | 门店 / 督导 | `import_stock_adjustments` |
 
@@ -332,4 +369,3 @@ V1 当前先通过报表人工调整，不做页面确认。
 能导出文件
 能推送摘要
 ```
-

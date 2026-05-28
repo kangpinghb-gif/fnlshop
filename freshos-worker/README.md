@@ -5,9 +5,11 @@ FreshOS V1 云端自动订货助手。
 第一版目标：
 
 ```text
-Hermes 定时执行
+Hermes 自动导出大表哥 40/42 数据
   ↓
-抓取/导入数据
+Hermes 触发 freshos-worker
+  ↓
+导入订单 / 盘点 / Hermes 导出文件
   ↓
 计算库存口径、销量预测、订货建议、库存风险
   ↓
@@ -138,9 +140,9 @@ python -m jobs.notify --business-date 2026-05-25
 
 ## 下一步
 
-1. 接入 PostgreSQL 写入和读取。
-2. 实现大表哥抓取/导入解析器。
-3. 用正式大表哥导出文件补齐日数据字段别名。
-4. 实现库存口径 `inventory_positions` 批量落库。
+1. 配置 Hermes 将大表哥 40/42 导出文件写入 `/var/lib/freshos/data/`。
+2. 用正式 Hermes 导出文件补齐日数据字段别名。
+3. 验证正式门店 / 商品 / 门店商品关系导入。
+4. 验证正式销售、库存、订货、收货、订单、盘点数据导入。
 5. 将 CSV 报表升级为 XLSX 报表。
 6. 接入企业微信/飞书 webhook。
