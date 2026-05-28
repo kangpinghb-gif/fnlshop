@@ -22,6 +22,11 @@ Supported login modes:
 1. Manual login: open the login page and ask the user to enter credentials and verification manually.
 2. Keychain-assisted login: read the password from macOS Keychain after user approval, fill username/password, then ask the user to complete CAPTCHA/SMS/MFA if present.
 
+Preferred mode by runtime:
+
+- On macOS desktop: manual login first, Keychain-assisted login optional.
+- On Linux server / Hermes: manual login or server-side secret injection only. Do not reference macOS Keychain on Linux servers.
+
 Default Keychain configuration:
 
 - Service name: `freshos-dabiaoge`
@@ -33,6 +38,8 @@ Keychain helper:
 ```bash
 scripts/get_keychain_password.sh freshos-dabiaoge kang
 ```
+
+Important: the Keychain helper is only for macOS desktop runtime. Do not call it from Hermes on Linux servers.
 
 Login steps:
 
@@ -360,11 +367,27 @@ customerSearchAll(1);
 
 When exporting for FreshOS V1, use these lean presets. Keep exports small; do not include fields that are not used by V1 ordering, inventory, or matching.
 
-Default date range: last 30 days.
+Default date range:
+
+- `stores_products_base`: one recent business day
+- `sales_daily`: last 30 days
+- `inventory_loss_daily`: target business day or last 30 days if doing historical补数
+- `purchase_receipts_daily`: target business day or last 30 days if doing historical补数
+- `realtime_inventory` / `inventory_snapshot`: target business day
 
 Default category filter: 大分类编码 in `40,42`. The system supports multi-select / multi-value filtering for these two categories.
 
 Historical data source priority: use 大表哥 as the primary source for historical sales, inventory, loss, purchase, and receipt data. Order files are used for arrival date and actual daily arrival quantity.
+
+FreshOS V1 current production import targets:
+
+- `import_dabiaoge_base`
+- `import_dabiaoge_daily --report-type sales`
+- `import_dabiaoge_daily --report-type inventory_loss`
+- `import_dabiaoge_daily --report-type purchase_receipts`
+- `import_dabiaoge_daily --report-type inventory_snapshot`
+
+Note: `product_order_params` is useful for later enhancement, but it is not a current required import target in the production worker chain.
 
 ### FreshOS Export Presets
 
@@ -393,6 +416,7 @@ Fields:
 Recommended output:
 
 - `data_samples/dabiaoge_stores_products_base.xlsx`
+- Production/Hermes filename: `/var/lib/freshos/data/dabiaoge_base_40_42_YYYY-MM-DD.xlsx`
 
 #### Preset B: product_order_params
 
@@ -418,6 +442,10 @@ Recommended output:
 
 - `data_samples/dabiaoge_product_order_params.xlsx`
 
+Status:
+
+- Optional preset, not required for current production daily run.
+
 #### Preset C: sales_daily
 
 Purpose: build sales history and baseline forecast.
@@ -439,6 +467,7 @@ Fields:
 Recommended output:
 
 - `data_samples/dabiaoge_sales_daily.xlsx`
+- Production/Hermes filename: `/var/lib/freshos/data/dabiaoge_sales_40_42_YYYY-MM-DD.xlsx`
 
 #### Preset D: inventory_loss_daily
 
@@ -462,6 +491,7 @@ Fields:
 Recommended output:
 
 - `data_samples/dabiaoge_inventory_loss_daily.xlsx`
+- Production/Hermes filename: `/var/lib/freshos/data/dabiaoge_inventory_loss_40_42_YYYY-MM-DD.xlsx`
 
 #### Preset E: purchase_receipts_daily
 
@@ -485,6 +515,7 @@ Fields:
 Recommended output:
 
 - `data_samples/dabiaoge_purchase_receipts_daily.xlsx`
+- Production/Hermes filename: `/var/lib/freshos/data/dabiaoge_purchase_receipts_40_42_YYYY-MM-DD.xlsx`
 
 #### Preset F: realtime_inventory
 
@@ -506,6 +537,10 @@ Fields:
 Recommended output:
 
 - `data_samples/dabiaoge_realtime_inventory.xlsx`
+
+Production/Hermes filename:
+
+- `/var/lib/freshos/data/dabiaoge_inventory_snapshot_40_42_YYYY-MM-DD.xlsx`
 
 ### FreshOS Filters
 
@@ -567,8 +602,160 @@ Suggested FreshOS file outputs:
 6. Apply category filter: 大分类编码 in `40,42`.
 7. Run `customerSearchAll()`.
 8. Export with `exportByDownloadCenter()`.
-9. Save or move exported file into `data_samples/` with the preset filename.
-10. If export fails, use DOM/XHR fallback and save CSV/XLSX from extracted data.
+9. Save or move exported file:
+   - Production/Hermes: into `/var/lib/freshos/data/` with the production filename.
+   - Sample collection/local analysis: into `data_samples/` with the sample filename.
+10. Verify the exported file exists, has non-zero size, and the header columns match the preset.
+11. If export fails, use DOM/XHR fallback and save CSV/XLSX from extracted data.
+
+## Hermes Production Run Contract
+
+When this skill is used by Hermes on the production server, follow this contract:
+
+1. Export exactly these required files:
+   - `dabiaoge_base_40_42_YYYY-MM-DD.xlsx`
+   - `dabiaoge_sales_40_42_YYYY-MM-DD.xlsx`
+   - `dabiaoge_inventory_loss_40_42_YYYY-MM-DD.xlsx`
+   - `dabiaoge_purchase_receipts_40_42_YYYY-MM-DD.xlsx`
+   - `dabiaoge_inventory_snapshot_40_42_YYYY-MM-DD.xlsx`
+2. Place them under:
+   - `/var/lib/freshos/data/`
+3. Verify each file:
+   - file exists
+   - file size > 0
+   - header row contains expected fields
+   - category filter is `40,42`
+4. Only after export verification succeeds, trigger the FreshOS worker chain.
+5. If any required file fails export or verification, stop the chain and raise an error notification.
+
+Current worker behavior:
+
+- `jobs.import_dabiaoge_base` and `jobs.import_dabiaoge_daily` require explicit `--input` file paths.
+- The current `jobs.run_daily` chain does not automatically discover Hermes export files.
+- Therefore, Hermes should run the explicit import commands below before calculation jobs, unless `jobs.run_daily` is later upgraded to auto-discover files.
+
+Recommended worker trigger order after Hermes export succeeds:
+
+```text
+import_dabiaoge_base --input dabiaoge_base_40_42_YYYY-MM-DD.xlsx
+import_dabiaoge_daily --report-type sales --input dabiaoge_sales_40_42_YYYY-MM-DD.xlsx
+import_dabiaoge_daily --report-type inventory_loss --input dabiaoge_inventory_loss_40_42_YYYY-MM-DD.xlsx
+import_dabiaoge_daily --report-type purchase_receipts --input dabiaoge_purchase_receipts_40_42_YYYY-MM-DD.xlsx
+import_dabiaoge_daily --report-type inventory_snapshot --input dabiaoge_inventory_snapshot_40_42_YYYY-MM-DD.xlsx
+match_order_imports
+calculate_inventory
+forecast_sales
+generate_order_suggestions
+generate_inventory_risks
+export_reports
+notify
+```
+
+Recommended verification commands on server:
+
+```bash
+ls -lh /var/lib/freshos/data/dabiaoge_*_40_42_YYYY-MM-DD.xlsx
+```
+
+If the worker uses direct commands instead of one wrapped entrypoint, ensure the same business date is passed consistently to all daily jobs.
+
+Explicit server command template:
+
+```bash
+cd /opt/freshos-worker
+
+/opt/freshos-worker/.venv/bin/python -m jobs.import_dabiaoge_base \
+  --config /etc/freshos/settings.toml \
+  --business-date YYYY-MM-DD \
+  --input /var/lib/freshos/data/dabiaoge_base_40_42_YYYY-MM-DD.xlsx
+
+/opt/freshos-worker/.venv/bin/python -m jobs.import_dabiaoge_daily \
+  --config /etc/freshos/settings.toml \
+  --business-date YYYY-MM-DD \
+  --report-type sales \
+  --input /var/lib/freshos/data/dabiaoge_sales_40_42_YYYY-MM-DD.xlsx
+
+/opt/freshos-worker/.venv/bin/python -m jobs.import_dabiaoge_daily \
+  --config /etc/freshos/settings.toml \
+  --business-date YYYY-MM-DD \
+  --report-type inventory_loss \
+  --input /var/lib/freshos/data/dabiaoge_inventory_loss_40_42_YYYY-MM-DD.xlsx
+
+/opt/freshos-worker/.venv/bin/python -m jobs.import_dabiaoge_daily \
+  --config /etc/freshos/settings.toml \
+  --business-date YYYY-MM-DD \
+  --report-type purchase_receipts \
+  --input /var/lib/freshos/data/dabiaoge_purchase_receipts_40_42_YYYY-MM-DD.xlsx
+
+/opt/freshos-worker/.venv/bin/python -m jobs.import_dabiaoge_daily \
+  --config /etc/freshos/settings.toml \
+  --business-date YYYY-MM-DD \
+  --report-type inventory_snapshot \
+  --input /var/lib/freshos/data/dabiaoge_inventory_snapshot_40_42_YYYY-MM-DD.xlsx
+
+/opt/freshos-worker/.venv/bin/python -m jobs.match_order_imports \
+  --config /etc/freshos/settings.toml \
+  --business-date YYYY-MM-DD
+
+/opt/freshos-worker/.venv/bin/python -m jobs.calculate_inventory \
+  --config /etc/freshos/settings.toml \
+  --business-date YYYY-MM-DD
+
+/opt/freshos-worker/.venv/bin/python -m jobs.forecast_sales \
+  --config /etc/freshos/settings.toml \
+  --business-date YYYY-MM-DD
+
+/opt/freshos-worker/.venv/bin/python -m jobs.generate_order_suggestions \
+  --config /etc/freshos/settings.toml \
+  --business-date YYYY-MM-DD
+
+/opt/freshos-worker/.venv/bin/python -m jobs.generate_inventory_risks \
+  --config /etc/freshos/settings.toml \
+  --business-date YYYY-MM-DD
+
+/opt/freshos-worker/.venv/bin/python -m jobs.export_reports \
+  --config /etc/freshos/settings.toml \
+  --business-date YYYY-MM-DD
+
+/opt/freshos-worker/.venv/bin/python -m jobs.notify \
+  --config /etc/freshos/settings.toml \
+  --business-date YYYY-MM-DD
+```
+
+## Export Verification Checklist
+
+Check these before treating the export as usable:
+
+1. Base file contains:
+   - 店铺编号
+   - 店铺名称
+   - 商品编码
+   - 商品名称
+   - 大分类编码
+2. Sales file contains:
+   - 店铺编号
+   - 商品编码
+   - 销量
+   - 销售额
+3. Inventory/loss file contains:
+   - 店铺编号
+   - 商品编码
+   - 库存数量（期末） or compatible inventory quantity field
+   - 报损数量
+4. Purchase/receipt file contains:
+   - 店铺编号
+   - 商品编码
+   - 订货数量
+   - 收货数量 or 总收货数量
+5. Inventory snapshot file contains:
+   - 店铺编号
+   - 商品编码
+   - 库存数量 or compatible realtime stock field
+6. Data scope is fresh only:
+   - 大分类编码 is only `40` and `42`
+7. Row volume is plausible:
+   - not zero rows
+   - not obviously full-company unrelated categories
 
 ## Known Traps
 

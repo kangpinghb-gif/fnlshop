@@ -38,13 +38,13 @@ git push
 
 ## 三、服务器下载
 
-在 Hermes 所在服务器执行，把下面 URL 中的 `你的GitHub用户名/你的仓库名/main` 换成实际地址：
+在 Hermes 所在服务器执行：
 
 ```bash
 mkdir -p /opt/hermes/skills/dabiaoge
 
 curl -fsSL \
-  https://raw.githubusercontent.com/你的GitHub用户名/你的仓库名/main/skills/dabiaoge/SKILL.md \
+  https://raw.githubusercontent.com/kangpinghb-gif/fnlshop/main/skills/dabiaoge/SKILL.md \
   -o /opt/hermes/skills/dabiaoge/SKILL.md
 
 ls -lh /opt/hermes/skills/dabiaoge/SKILL.md
@@ -57,7 +57,7 @@ head -n 20 /opt/hermes/skills/dabiaoge/SKILL.md
 mkdir -p /opt/hermes/skills/dabiaoge
 
 wget -O /opt/hermes/skills/dabiaoge/SKILL.md \
-  https://raw.githubusercontent.com/你的GitHub用户名/你的仓库名/main/skills/dabiaoge/SKILL.md
+  https://raw.githubusercontent.com/kangpinghb-gif/fnlshop/main/skills/dabiaoge/SKILL.md
 ```
 
 ## 四、给 Hermes 的执行指令
@@ -78,7 +78,8 @@ wget -O /opt/hermes/skills/dabiaoge/SKILL.md \
    dabiaoge_inventory_loss_40_42_YYYY-MM-DD.xlsx
    dabiaoge_purchase_receipts_40_42_YYYY-MM-DD.xlsx
    dabiaoge_inventory_snapshot_40_42_YYYY-MM-DD.xlsx
-4. 导出成功后触发 freshos-worker 导入和计算链路。
-5. 不要保存明文账号密码、验证码、Cookie、Session 或 Token。
+4. 导出后先校验文件存在、非空、表头字段正确、只包含 40/42。
+5. 校验成功后触发 freshos-worker 导入和计算链路；当前导入任务必须显式传入 --input 文件路径。
+6. 任一必需文件导出或校验失败时停止链路并反馈错误。
+7. 不要保存明文账号密码、验证码、Cookie、Session 或 Token。
 ```
-
