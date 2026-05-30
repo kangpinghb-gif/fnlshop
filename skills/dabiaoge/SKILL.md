@@ -80,7 +80,7 @@ Login steps:
 1. Open the 盛和 A+ login page in the browser.
 2. If using Keychain mode, request permission to read the password from Keychain, then fill username/password.
 3. Ask the user to complete CAPTCHA, SMS, QR-code, or MFA manually when required.
-4. Confirm successful login by checking that the page title or visible UI indicates the A+ analysis system.
+4. Confirm successful login by checking that `document.title === "A+分析系统"` or the visible UI clearly indicates the A+ analysis system.
 5. Navigate to the 大表哥/custom report page after login.
 
 Known pages:
@@ -157,6 +157,7 @@ Use this protocol after every report type switch:
 
 1. Trigger field DOM rendering:
    - run `document.querySelectorAll('input[data_column]')`
+   - wait 1-2 seconds for the panel to settle
    - expand the relevant panels if the expected fields are not present yet
 2. Try selecting by stable `data_column` first.
 3. Verify the selected fields are checked.
@@ -167,11 +168,22 @@ Avoid unstable DOM indexes. Prefer `data_column`; use visible labels as fallback
 
 Known field selection behavior:
 
-- type=1 is the most stable for `data_column` selection.
-- type=2 can require verification and retry after switching report type.
-- type=3 can require a render trigger before sales/receipt fields appear.
-- type=5 can require visible-label selection after switching from another report type.
+- type=1, type=2, and type=3 use strategy D when the panel is stable.
+- strategy D means temporarily remove `.hide` from all `.option_item`, select by `data_column` through `changeItemColorBox`, then restore `.hide`.
+- type=5 must use strategy B: expand the `LabelText` panel and select fields manually by visible label.
+- Never click the main category checkbox.
 - type=6 and type=7 are not used by FreshOS V1 production exports unless explicitly requested.
+
+Strategy D sketch:
+
+```javascript
+var items = document.querySelectorAll('.option_item');
+for (var i = 0; i < items.length; i++) {
+  items[i].classList.remove('hide');
+}
+// locate target by data_column, then call changeItemColorBox(jQuery(item))
+// restore .hide after selection
+```
 
 Safe selection pattern:
 
@@ -329,6 +341,8 @@ for (var i = 0; i < btns.length; i++) {
 }
 ```
 
+Set the filter value through JS and `dispatchEvent`; do not depend on browser click behavior to apply the value.
+
 ## Query And Export
 
 Use page functions where visible buttons are unreliable:
@@ -336,6 +350,11 @@ Use page functions where visible buttons are unreliable:
 ```javascript
 customerSearchAll();
 ```
+
+Important query notes:
+
+- `customerSearchAll(1)` does not return full data; it has only been observed to return one row.
+- `table[2]` is only a browser view and may show about 100 rows per shop or page; the XLSX export is the full export path.
 
 For export, capture the generated file path before triggering export:
 
@@ -357,7 +376,19 @@ Export notes:
 - Keep exports to roughly 10 to 12 columns to avoid silent truncation.
 - If the export dialog says the system is generating the file, wait.
 - Closing the dialog may not cancel backend generation.
+- The first export may fail silently; if `_capturedFileUrl` is still null after about 15 seconds, rerun `customerSearchAll()` and `exportByDownloadCenter()`.
 - If export fails, use DOM/XHR extraction fallback.
+
+## Period Comparison
+
+type=2 has a special export format:
+
+- Row 1: period 1 label
+- Row 2: period 2 label
+- Row 3: column headers
+- Row 4 and later: data rows
+
+After `customerReset()`, type=2 may fall back to type=1. Re-select type=2 and set both date ranges again before exporting.
 
 ## Fallback Extraction Only
 
@@ -821,5 +852,7 @@ Check these before treating the export as usable:
 6. Export size: too many columns can silently truncate exports; keep each export lean.
 7. Export flow: closing the export dialog may not cancel backend generation; wait and verify the final file.
 8. Session state: browser sessions can expire; ask the user to log in again instead of bypassing verification.
-9. Business metrics: 毛利率 can be decimal, for example `0.0133` means `1.33%`; listed 售价 may be marked price, not actual transaction price.
-10. Accounting timing: mid-month closing inventory amount may be zero before accounting close; prefer quantity fields for FreshOS V1 inventory logic.
+9. Export retries: if the first export produces no URL, rerun query + export once before switching to fallback.
+10. Business metrics: 毛利率 can be decimal, for example `0.0133` means `1.33%`; listed 售价 may be marked price, not actual transaction price.
+11. Accounting timing: mid-month closing inventory amount may be zero before accounting close; prefer quantity fields for FreshOS V1 inventory logic.
+12. Login validation: treat backend login failure as a real credential problem first; do not mistake page-level state for successful authentication.

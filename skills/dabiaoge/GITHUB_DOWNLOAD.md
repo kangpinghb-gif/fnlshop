@@ -8,6 +8,7 @@
 
 ```text
 skills/dabiaoge/SKILL.md
+skills/dabiaoge/TEST_PLAN.md
 ```
 
 如果 Hermes 需要读取辅助脚本，也一并上传：
@@ -24,8 +25,8 @@ skills/dabiaoge/scripts/get_keychain_password.sh
 
 ```bash
 git status
-git add skills/dabiaoge/SKILL.md skills/dabiaoge/GITHUB_DOWNLOAD.md skills/dabiaoge/scripts/get_keychain_password.sh
-git commit -m "docs: add dabiaoge skill github download guide"
+git add skills/dabiaoge/SKILL.md skills/dabiaoge/TEST_PLAN.md skills/dabiaoge/GITHUB_DOWNLOAD.md skills/dabiaoge/scripts/get_keychain_password.sh
+git commit -m "docs: update dabiaoge export skill"
 git remote add origin git@github.com:你的GitHub用户名/你的仓库名.git
 git push -u origin main
 ```
