@@ -48,7 +48,11 @@ curl -fsSL \
   https://raw.githubusercontent.com/kangpinghb-gif/fnlshop/main/skills/dabiaoge/SKILL.md \
   -o /opt/hermes/skills/dabiaoge/SKILL.md
 
-ls -lh /opt/hermes/skills/dabiaoge/SKILL.md
+curl -fsSL \
+  https://raw.githubusercontent.com/kangpinghb-gif/fnlshop/main/skills/dabiaoge/TEST_PLAN.md \
+  -o /opt/hermes/skills/dabiaoge/TEST_PLAN.md
+
+ls -lh /opt/hermes/skills/dabiaoge/
 head -n 20 /opt/hermes/skills/dabiaoge/SKILL.md
 ```
 
@@ -71,16 +75,16 @@ wget -O /opt/hermes/skills/dabiaoge/SKILL.md \
 按其中规则执行 FreshOS V1 大表哥导出任务。
 
 要求：
-1. 只导出大分类编码 40,42。
+1. 使用 API-first / Python requests / type=3 期间趋势报表导出日粒度业务数据，不走 UI 字段勾选。
 2. 导出文件放到 /var/lib/freshos/data/。
 3. 文件名使用：
-   dabiaoge_base_40_42_YYYY-MM-DD.xlsx
-   dabiaoge_sales_40_42_YYYY-MM-DD.xlsx
-   dabiaoge_inventory_loss_40_42_YYYY-MM-DD.xlsx
-   dabiaoge_purchase_receipts_40_42_YYYY-MM-DD.xlsx
-   dabiaoge_inventory_snapshot_40_42_YYYY-MM-DD.xlsx
-4. 导出后先校验文件存在、非空、表头字段正确、只包含 40/42。
-5. 校验成功后触发 freshos-worker 导入和计算链路；当前导入任务必须显式传入 --input 文件路径。
-6. 任一必需文件导出或校验失败时停止链路并反馈错误。
-7. 不要保存明文账号密码、验证码、Cookie、Session 或 Token。
+   dabiaoge_stores_products_base.xlsx
+   dabiaoge_sales_daily.xlsx
+   dabiaoge_inventory_loss_daily.xlsx
+   dabiaoge_purchase_receipts_daily.xlsx
+4. 只导出大分类编码 40,42；业务文件必须有 日期 列。
+5. 导出后先校验文件存在、非空、表头字段正确、只包含 40/42。
+6. 校验成功后触发 freshos-worker 导入和计算链路；当前导入任务必须显式传入 --input 文件路径。
+7. 任一必需文件导出或校验失败时停止链路并反馈错误。
+8. 不要保存明文账号密码、验证码、Cookie、Session 或 Token。
 ```

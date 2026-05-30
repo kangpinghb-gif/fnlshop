@@ -1,121 +1,152 @@
 # 大表哥 Skill 测试清单
 
-用途：更新 `skills/dabiaoge/SKILL.md` 后，用这份清单验证 Hermes / 浏览器执行是否按最新实测规则运行。
+用途：验证 API-first 大表哥导出是否满足 FreshOS V1 入库要求。
 
-## 1. 登录校验
+## 1. 安全检查
 
-- 打开 `https://hljxz.info-plus.cn/KIT/homePage/login`
-- 用户完成账号、密码和验证码/MFA
-- 登录后检查：
+- `SKILL.md` 不包含账号、密码、Cookie、Session、Token。
+- Python 脚本不得硬编码 `USERNAME` / `PASSWORD`。
+- 真实业务导出数据不要提交到 GitHub，除非用户明确批准。
 
-```javascript
-document.title
-```
+## 2. API 路径检查
 
-期望值：
+生产导出应使用 Python requests 调用接口，不依赖浏览器 UI 字段勾选。
 
-```text
-A+分析系统
-```
-
-## 2. type=1/2/3 字段选择
-
-- 切换到目标报表类型
-- 先触发字段 DOM：
-
-```javascript
-document.querySelectorAll('input[data_column]').length
-```
-
-- 等待 1-2 秒
-- 使用策略 D：
-  - 临时移除 `.option_item` 的 `hide`
-  - 用 `data_column` 定位字段
-  - 调用 `changeItemColorBox(jQuery(item))`
-  - 恢复 `hide`
-- 不点击主分类 checkbox
-
-测试字段：
+必须经过：
 
 ```text
-store_name
-item_cd
-item_name_dis
-cat_id_01
-sales_qty
-sales_amt
+/KIT/T10006/initData
+/KIT/T10006/businessData
+/KIT/T10006/getTableData
 ```
 
-## 3. type=5 今日实时报表字段选择
-
-- 切换到 `今日实时报表`
-- 手动展开 `LabelText` 面板
-- 按可见字段名选择，不使用策略 D
-
-测试字段：
+业务日粒度文件必须使用：
 
 ```text
-店铺编号
-店铺名称
-商品编码
-商品名称
-库存数量
-在途数量
+reportType=3
 ```
 
-注意字段差异：
+base 映射文件可使用：
 
 ```text
-sales_qty -> sale_qty
-sales_amt -> sale_amt
-stock_qty 作为实时库存字段
+reportType=4
 ```
 
-## 4. 查询和导出
+## 3. 文件清单
 
-- 使用页面函数，不点页面按钮：
-
-```javascript
-customerSearchAll();
-exportByDownloadCenter();
-```
-
-- 导出前必须挂 `downloadfile` 补丁并检查：
-
-```javascript
-window._capturedFileUrl
-```
-
-期望：
+应生成：
 
 ```text
-15 秒内出现非空文件 URL
+dabiaoge_stores_products_base.xlsx
+dabiaoge_sales_daily.xlsx
+dabiaoge_inventory_loss_daily.xlsx
+dabiaoge_purchase_receipts_daily.xlsx
 ```
 
-如果 15 秒后仍为 `null`：
-
-```javascript
-customerSearchAll();
-exportByDownloadCenter();
-```
-
-## 5. 结果验证
-
-- XLSX 文件存在且大小 > 0
-- 表头包含本次预设字段
-- 大分类编码只包含 `40` 和 `42`
-- 行数不是 0
-- 不以浏览器 `table[2]` 行数判断全量，最终以 XLSX 为准
-
-## 6. type=2 期间对比格式
-
-导出后检查：
+暂不要求：
 
 ```text
-Row 1 = 期间1标签
-Row 2 = 期间2标签
-Row 3 = 列头
-Row 4+ = 数据
+dabiaoge_inventory_snapshot.xlsx
 ```
 
-如 `customerReset()` 后导出异常，重新切换 type=2 并重新设置两组日期。
+## 4. 表头检查
+
+sales:
+
+```text
+店铺编号, 店铺名称, 大分类编码, 商品编码, 商品名称, 日期, 销量, 销售额
+```
+
+inventory_loss:
+
+```text
+店铺编号, 店铺名称, 大分类编码, 商品编码, 商品名称, 日期, 库存数量（期末）, 报损数量, 报损金额, 盘盈盘亏数量
+```
+
+purchase_receipts:
+
+```text
+店铺编号, 店铺名称, 大分类编码, 商品编码, 商品名称, 日期, 订货数量, 收货数量, 总收货数量, 总退货+调出数量
+```
+
+base:
+
+```text
+店铺编号, 店铺名称, 店铺状态, 大分类编码, 大分类名称, 中分类编码, 中分类名称, 商品编码, 商品名称, 销售单位, 保质期限(天)
+```
+
+注意：
+
+```text
+库存数量（期末）
+```
+
+必须使用中文括号。
+
+## 5. 数据范围检查
+
+每个文件检查：
+
+- 大分类编码只包含 `40` 和 `42`。
+- 门店包含 `10002`, `10003`, `10008`。
+- 必需字段无空值。
+- 数值字段不是全部 0。
+
+业务日粒度文件检查：
+
+- 必须有 `日期` 列。
+- 日期范围连续。
+- 行数 = store-product 行数 * 日期天数。
+
+## 6. FreshOS Importer 检查
+
+在 `freshos-worker` 目录运行：
+
+```bash
+PYTHONPATH=. python3 - <<'PY'
+from pathlib import Path
+from freshos.importers.dabiaoge_base import parse_dabiaoge_base_file
+from freshos.importers.dabiaoge_daily import parse_dabiaoge_daily_file, merge_dabiaoge_daily_rows
+
+data_dir = Path("/var/lib/freshos/data")
+
+base = parse_dabiaoge_base_file(data_dir / "dabiaoge_stores_products_base.xlsx")
+print("base", len(base.stores), len(base.products), len(base.store_products))
+
+for report_type, filename in [
+    ("sales", "dabiaoge_sales_daily.xlsx"),
+    ("inventory_loss", "dabiaoge_inventory_loss_daily.xlsx"),
+    ("purchase_receipts", "dabiaoge_purchase_receipts_daily.xlsx"),
+]:
+    rows = parse_dabiaoge_daily_file(data_dir / filename, report_type=report_type, default_business_date="2026-05-28")
+    merged = merge_dabiaoge_daily_rows(rows)
+    dates = sorted({row.business_date for row in rows})
+    stores = sorted({row.store_code for row in rows})
+    print(report_type, len(rows), len(merged), dates[0], dates[-1], len(dates), stores)
+PY
+```
+
+期望样例：
+
+```text
+base stores=3 products=865 store_products=2595
+sales rows=22092 dates=28 stores=10002/10003/10008
+inventory_loss rows=22092 dates=28 stores=10002/10003/10008
+purchase_receipts rows=22092 dates=28 stores=10002/10003/10008
+```
+
+## 7. 入库方式
+
+业务文件已经有 `日期` 列时，不需要逐日拆文件导入。FreshOS importer 会优先使用文件中的日期。
+
+示例：
+
+```bash
+python -m jobs.import_dabiaoge_daily \
+  --config /etc/freshos/settings.toml \
+  --business-date 2026-05-28 \
+  --report-type sales \
+  --input /var/lib/freshos/data/dabiaoge_sales_daily.xlsx
+```
+
+`--business-date` 只是默认日期；文件里有 `日期` 列时，会按每行日期入库。
