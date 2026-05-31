@@ -95,6 +95,33 @@ def test_parse_dabiaoge_base_accepts_header_aliases(tmp_path):
     assert result.store_products[0].is_sellable is True
 
 
+def test_parse_dabiaoge_base_treats_numeric_status_one_as_enabled(tmp_path):
+    path = tmp_path / "numeric_status.csv"
+    row = {column: "" for column in DABIAOGE_BASE_COLUMNS}
+    row.update(
+        {
+            "店铺编号": "10008",
+            "店铺名称": "宝信润山店",
+            "大分类编码": "42",
+            "大分类名称": "日配生鲜",
+            "商品编码": "2014691",
+            "商品名称": "海南香蕉",
+            "店铺订货标识": "1",
+            "店铺销售标识": "1",
+        }
+    )
+
+    with path.open("w", encoding="utf-8-sig", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=DABIAOGE_BASE_COLUMNS)
+        writer.writeheader()
+        writer.writerow(row)
+
+    result = parse_dabiaoge_base_csv(path)
+
+    assert result.store_products[0].is_orderable is True
+    assert result.store_products[0].is_sellable is True
+
+
 def test_parse_dabiaoge_base_marks_clearance_products_not_orderable(tmp_path):
     path = tmp_path / "clearance.csv"
     rows = []
@@ -128,6 +155,39 @@ def test_parse_dabiaoge_base_marks_clearance_products_not_orderable(tmp_path):
     assert len(result.store_products) == 3
     assert all(row.is_orderable is False for row in result.store_products)
     assert all(row.is_sellable is True for row in result.store_products)
+
+
+def test_parse_dabiaoge_base_overrides_grape_shelf_life(tmp_path):
+    path = tmp_path / "grapes.csv"
+    rows = []
+    for code, name, shelf_life in [
+        ("2014691", "巨峰葡萄", "5"),
+        ("2014692", "葡萄柚", "15"),
+    ]:
+        row = {column: "" for column in DABIAOGE_BASE_COLUMNS}
+        row.update(
+            {
+                "店铺编号": "10008",
+                "店铺名称": "宝信润山店",
+                "大分类编码": "42",
+                "大分类名称": "日配生鲜",
+                "商品编码": code,
+                "商品名称": name,
+                "保质期限(天)": shelf_life,
+            }
+        )
+        rows.append(row)
+
+    with path.open("w", encoding="utf-8-sig", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=DABIAOGE_BASE_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    result = parse_dabiaoge_base_csv(path)
+    shelf_life_by_name = {row.product_name: row.shelf_life_days for row in result.products}
+
+    assert shelf_life_by_name["巨峰葡萄"] == 1
+    assert shelf_life_by_name["葡萄柚"] == 15
 
 
 def test_parse_dabiaoge_base_accepts_xlsx(tmp_path):

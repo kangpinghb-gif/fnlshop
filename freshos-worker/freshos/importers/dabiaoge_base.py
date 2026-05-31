@@ -150,7 +150,7 @@ def parse_dabiaoge_base_file(
                 cat_name_02=_clean_text(row.get("中分类名称")),
                 sale_unit=_clean_text(row.get("销售单位")) or "kg",
                 fresh_attribute=_clean_text(row.get("商品属性")),
-                shelf_life_days=_to_float(row.get("保质期限(天)")),
+                shelf_life_days=_resolve_shelf_life_days(product_name, row.get("保质期限(天)")),
             ),
         )
 
@@ -277,6 +277,11 @@ def _is_enabled_status(value: object) -> bool:
     text = _clean_text(value)
     if not text:
         return True
+    normalized = text.lower()
+    if normalized in {"1", "true", "yes", "y", "是"}:
+        return True
+    if normalized in {"0", "false", "no", "n", "否"}:
+        return False
     if "不可" in text or "不允许" in text:
         return False
     return "可" in text or "正常" in text
@@ -285,3 +290,14 @@ def _is_enabled_status(value: object) -> bool:
 def _is_clearance_product_name(product_name: str) -> bool:
     normalized = product_name.strip().lower()
     return normalized.startswith("折-") or "zjp" in normalized
+
+
+def _resolve_shelf_life_days(product_name: str, source_value: object) -> float | None:
+    if _is_grape_product_name(product_name):
+        return 1.0
+    return _to_float(source_value)
+
+
+def _is_grape_product_name(product_name: str) -> bool:
+    text = product_name.strip()
+    return "葡萄" in text and "葡萄柚" not in text

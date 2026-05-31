@@ -29,9 +29,10 @@ def calculate_order_suggestion(
     if not is_sellable:
         return OrderSuggestion(0.0, 0.0, "not_sellable")
 
+    order_inventory_qty = max(corrected_inventory_qty, 0.0)
     safety_stock_qty = max(forecast_quantity * safety_stock_days, sales_stddev)
     loss_compensation_qty = forecast_quantity * max(loss_rate, 0.0)
-    raw = forecast_quantity + safety_stock_qty + loss_compensation_qty - corrected_inventory_qty - pending_arrival_qty
+    raw = forecast_quantity + safety_stock_qty + loss_compensation_qty - order_inventory_qty - pending_arrival_qty
     raw = max(raw, 0.0)
 
     suggested = raw
@@ -41,4 +42,3 @@ def calculate_order_suggestion(
         suggested = math.ceil(suggested / order_batch_qty) * order_batch_qty
 
     return OrderSuggestion(round(raw, 3), round(suggested, 3), "rule_based_v1")
-

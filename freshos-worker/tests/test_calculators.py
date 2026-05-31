@@ -47,6 +47,19 @@ def test_order_suggestion_applies_min_and_batch():
     assert result.suggested_order_qty == 15
 
 
+def test_order_suggestion_truncates_negative_inventory_for_ordering():
+    result = calculate_order_suggestion(
+        is_orderable=True,
+        is_sellable=True,
+        forecast_quantity=10,
+        corrected_inventory_qty=-100,
+        safety_stock_days=1,
+    )
+
+    assert result.raw_suggested_qty == 20
+    assert result.suggested_order_qty == 20
+
+
 def test_risk_detects_stockout_and_near_expiry():
     risks = identify_inventory_risks(
         corrected_inventory_qty=3,
