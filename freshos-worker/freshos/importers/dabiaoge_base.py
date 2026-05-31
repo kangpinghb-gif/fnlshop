@@ -155,12 +155,13 @@ def parse_dabiaoge_base_file(
         )
 
         key = (store_code, product_code)
+        is_clearance_product = _is_clearance_product_name(product_name)
         store_products[key] = StoreProductBaseRow(
             store_code=store_code,
             product_code=product_code,
             store_order_status=_clean_text(row.get("店铺订货标识")),
             store_sale_status=_clean_text(row.get("店铺销售标识")),
-            is_orderable=_is_enabled_status(row.get("店铺订货标识")),
+            is_orderable=_is_enabled_status(row.get("店铺订货标识")) and not is_clearance_product,
             is_sellable=_is_enabled_status(row.get("店铺销售标识")),
             package_size=_to_float(row.get("箱装数")),
             order_batch_qty=_to_float(row.get("订货批量")),
@@ -279,3 +280,8 @@ def _is_enabled_status(value: object) -> bool:
     if "不可" in text or "不允许" in text:
         return False
     return "可" in text or "正常" in text
+
+
+def _is_clearance_product_name(product_name: str) -> bool:
+    normalized = product_name.strip().lower()
+    return normalized.startswith("折-") or "zjp" in normalized
