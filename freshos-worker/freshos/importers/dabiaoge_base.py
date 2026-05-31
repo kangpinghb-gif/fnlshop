@@ -129,6 +129,8 @@ def parse_dabiaoge_base_file(
         product_name = _clean_text(row.get("商品名称"))
         if not store_code or not product_code or not store_name or not product_name:
             continue
+        if _is_placeholder_product_name(product_name):
+            continue
 
         stores.setdefault(
             store_code,
@@ -290,6 +292,10 @@ def _is_enabled_status(value: object) -> bool:
 def _is_clearance_product_name(product_name: str) -> bool:
     normalized = product_name.strip().lower()
     return normalized.startswith("折-") or "zjp" in normalized
+
+
+def _is_placeholder_product_name(product_name: str) -> bool:
+    return product_name.strip() == "D系统用代表商品"
 
 
 def _resolve_shelf_life_days(product_name: str, source_value: object) -> float | None:

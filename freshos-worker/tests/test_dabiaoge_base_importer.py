@@ -122,6 +122,39 @@ def test_parse_dabiaoge_base_treats_numeric_status_one_as_enabled(tmp_path):
     assert result.store_products[0].is_sellable is True
 
 
+def test_parse_dabiaoge_base_skips_placeholder_products(tmp_path):
+    path = tmp_path / "placeholder.csv"
+    rows = []
+    for code, name in [
+        ("2010328", "D系统用代表商品"),
+        ("2014691", "海南香蕉"),
+    ]:
+        row = {column: "" for column in DABIAOGE_BASE_COLUMNS}
+        row.update(
+            {
+                "店铺编号": "10008",
+                "店铺名称": "宝信润山店",
+                "大分类编码": "42",
+                "大分类名称": "日配生鲜",
+                "商品编码": code,
+                "商品名称": name,
+                "店铺订货标识": "1",
+                "店铺销售标识": "1",
+            }
+        )
+        rows.append(row)
+
+    with path.open("w", encoding="utf-8-sig", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=DABIAOGE_BASE_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    result = parse_dabiaoge_base_csv(path)
+
+    assert [row.product_name for row in result.products] == ["海南香蕉"]
+    assert [row.product_code for row in result.store_products] == ["2014691"]
+
+
 def test_parse_dabiaoge_base_marks_clearance_products_not_orderable(tmp_path):
     path = tmp_path / "clearance.csv"
     rows = []
