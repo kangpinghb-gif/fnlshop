@@ -56,13 +56,40 @@ Login notes:
 | 1 | 期间查询报表 | Period total only; do not use for FreshOS daily imports | Period aggregate |
 | 3 | 期间趋势报表 | sales / inventory_loss / purchase_receipts daily files | Daily |
 | 4 | 主档查询报表 | base mapping, store x product | Static mapping |
-| 5 | 今日实时报表 | realtime inventory snapshot, if needed | Current point-in-time |
+| 5 | 今日实时报表 | realtime query / intraday replenishment check only | Current point-in-time |
 
 Selection rules:
 
 - `base`: use type=4. It is static store-product mapping and does not need a date column.
 - `sales`, `inventory_loss`, `purchase_receipts`: use type=3. FreshOS needs daily rows, and type=1 only returns period totals.
-- `realtime_inventory`: use type=5 only when current stock snapshots are required.
+- Morning order quantity calculation must use type=3 historical daily data as the primary source.
+- Do not use type=5 today sales as the main forecast input for morning ordering; early-day sales are incomplete and can understate full-day demand.
+- Use type=5 only for realtime lookup, exception monitoring, and optional intraday replenishment decisions after sales have materially occurred.
+
+## Type 5 Realtime Data Scope
+
+type=5 今日实时报表 uses a different field set from type=1/type=3. Do not reuse type=1/type=3 field parameters in type=5.
+
+Verified type=5 fields:
+
+| Business meaning | type=1/type=3 field | type=5 field | type=5 biz_type | type=5 biz_type_t | FreshOS use |
+| --- | --- | --- | --- | --- | --- |
+| Sales quantity | `sales_qty` | `sale_qty` | `96` | `2` | realtime query only |
+| Sales amount | `sales_amt` | `sale_amt` | `96` | `2` | realtime query only |
+| Period closing stock | `closing_stock_qty` | not available | - | - | use type=3 instead |
+| Realtime stock | period inventory fields | `stock_qty` | `97` | `2` | realtime lookup / exception monitoring |
+| On-order quantity | not stable in type=3 | `on_order_qty` | `98` | `2` | realtime lookup / intraday replenishment check |
+
+Confirmed behavior:
+
+- `sales_qty`, `sales_amt`, and `closing_stock_qty` do not exist in type=5 `businessData`.
+- `sale_qty`, `sale_amt`, `stock_qty`, and `on_order_qty` work in type=5 and can be queried together.
+- type=5 can sort by realtime fields, for example `order_column=sale_qty&order_value=DESC`.
+
+FreshOS V1 policy:
+
+- Formal morning ordering: use type=3 historical sales, inventory/loss, and purchase/receipt data.
+- Realtime type=5 data: use for dashboards, realtime stock checks, high-sales low-stock monitoring, and manual afternoon replenishment prompts.
 
 ## Type 3 Daily Data Shape
 
@@ -88,9 +115,11 @@ purchase_receipts = 5 base fields + 28 * 4 values
 店铺编号, 店铺名称, 大分类编码, 商品编码, 商品名称, 日期, business fields...
 ```
 
-## Field Parameters
+## Type 3 / Type 4 Field Parameters
 
-Never guess field parameters. Prefer extracting definitions from `businessData`. The following values have been verified for the FreshOS V1 export path:
+Never guess field parameters. Prefer extracting definitions from `businessData`.
+
+The following values have been verified for the FreshOS V1 type=3/type=4 export path. Type=5 has a different field set; use the dedicated type=5 table above for realtime fields.
 
 | data_column | biz_type | biz_type_t | data_type |
 | --- | --- | --- | --- |
