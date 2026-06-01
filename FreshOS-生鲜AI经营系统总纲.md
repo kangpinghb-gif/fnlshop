@@ -1,5 +1,208 @@
 # FreshOS 生鲜AI经营系统总纲（开发版）
 
+更新时间：2026-06-01
+
+## 零、变更后总纲汇总
+
+本次总纲从“早晨出订货建议的库存经营闭环”调整为“中午12点出次日订货建议的云端自动订货助手”。核心变化不是追求复杂AI，而是把实时销售、实时库存、在途到货和订单导入纳入同一个可解释的订货公式。
+
+### 1. 当前产品形态
+
+FreshOS V1.1 当前先不做完整 Web 后台，采用云端 worker 形态：
+
+```text
+云服务器 freshos-worker
+  ↓
+Hermes 定时执行
+  ↓
+自动抓取/导入大表哥、订单和盘点修正数据
+  ↓
+计算12点趋势修正预测、预计到货前库存、订货建议和库存风险
+  ↓
+生成 CSV/XLSX 报表
+  ↓
+通过企业微信/飞书推送结果
+```
+
+日常经营入口不是后台页面，而是：
+
+- Hermes 自动调度。
+- 企业微信/飞书接收结果。
+- CSV/XLSX 明细用于检查、导入和人工修正。
+- 服务器命令、任务日志和导入异常表用于维护。
+
+### 2. 当前订货时间口径
+
+订货建议时间统一调整为：
+
+```text
+每天12:00 生成次日订货建议
+```
+
+原因：
+
+- 早上10点蔬菜销量占全天比例通常不足10%，趋势判断价值较低。
+- 12点可以拿到更完整的半日销售信号。
+- 12点还能结合昨日期末库存、今日在途/到货、今日0-12点销售，估算更接近真实的到货前库存。
+
+### 3. V1.1 核心预测逻辑
+
+先算基础预测，再用12点实时销售做轻量修正：
+
+```text
+base_forecast_qty =
+最近7天有效销售日均
+  ↓ 不足3天
+最近14天有效销售日均
+  ↓ 不足3天
+大表哥 recent_daily_sales
+  ↓ 不足
+0
+```
+
+历史12点销量占比：
+
+```text
+historical_noon_ratio =
+历史0-12点累计销量 / 历史全天销量
+```
+
+如果历史12点占比低于20%，不启用趋势修正，避免用噪声放大预测。
+
+启用时：
+
+```text
+projected_today_sales_qty =
+today_noon_sales_qty / historical_noon_ratio
+```
+
+趋势修正系数：
+
+```text
+forecast_adjustment_factor =
+clamp(
+  1 + (projected_today_sales_qty / base_forecast_qty - 1) × 0.2,
+  0.9,
+  1.1
+)
+```
+
+最终预测：
+
+```text
+forecast_qty =
+base_forecast_qty × forecast_adjustment_factor
+```
+
+12点趋势只作为轻量修正，最多上下浮动10%，不让半日波动直接决定次日订货。
+
+### 4. V1.1 库存和订货口径
+
+12点生成次日订货建议时，不能直接用当前库存作为可用库存，而要估算到货前库存：
+
+```text
+expected_remaining_today_sales_qty =
+max(projected_today_sales_qty - today_noon_sales_qty, 0)
+```
+
+```text
+expected_inventory_at_arrival =
+current_inventory_qty
+- expected_remaining_today_sales_qty
+- expected_today_loss_qty
++ pending_arrival_qty
+```
+
+当前损耗率数据不稳定时：
+
+```text
+expected_today_loss_qty = 0
+```
+
+订货建议：
+
+```text
+raw_order_qty =
+forecast_qty
++ safety_stock_qty
++ loss_compensation_qty
+- expected_inventory_at_arrival
+- pending_order_qty
+```
+
+最终再应用经营参数：
+
+- 不可订货或不可销售时，建议订货量为0。
+- 有最小订货量时，不低于 `min_order_qty`。
+- 有订货批量时，按 `order_batch_qty` 向上取整。
+- 无稳定损耗率时，`loss_compensation_qty` 先按0处理。
+
+### 5. 当前基础数据要求
+
+V1.1 最低需要以下数据：
+
+| 数据 | 当前来源 | 用途 |
+| --- | --- | --- |
+| 门店、商品、门店商品 | 大表哥基础数据 | 主档、匹配和经营参数 |
+| 最近7/14/30天日销售 | 大表哥销售日汇总 | 基础销量预测 |
+| 历史0-12点销售 | 大表哥实时销售 | 计算历史12点占比 |
+| 今日0-12点销售 | 大表哥实时销售 | 判断今日趋势 |
+| 昨日期末库存 | 大表哥库存/损耗日汇总 | 估算12点库存 |
+| 12点库存/在途数量 | 今日实时报表、昨日期末库存和订单数据 | 估算到货前库存 |
+| 生鲜订单 Excel | 水果/蔬菜订单 | 到货日期、到货数量、在途修正 |
+| 人工盘点修正 | 人工修正模板 | 修正库存可信度 |
+| 商品可售天数 | 商品属性维护 | 区分可卖库存、风险库存和积压库存 |
+
+### 6. 当前开发状态
+
+代码版本已推进到：
+
+```text
+v1.1
+```
+
+GitHub 仓库：
+
+```text
+https://github.com/kangpinghb-gif/fnlshop.git
+```
+
+已完成：
+
+- `freshos-worker` 项目骨架。
+- PostgreSQL schema 草案和迁移脚本。
+- Hermes 任务入口。
+- 订单 Excel 解析和导入。
+- 门店/商品匹配回填。
+- 大表哥基础数据导入。
+- 大表哥日数据导入骨架。
+- 库存口径、库存年龄、销量预测、订货建议、库存风险计算任务。
+- 企业微信/飞书 webhook 推送接口。
+- V1.1 12点趋势修正预测逻辑。
+- V1.1 预计到货前库存订货逻辑。
+
+仍需正式数据验证：
+
+1. 大表哥 40/42 商品基础导出。
+2. 最近30天销售日汇总。
+3. 历史0-12点实时销售。
+4. 今日0-12点实时销售。
+5. 昨日期末库存。
+6. 今日在途/到货数量。
+7. 损耗/报损数据。
+
+### 7. 下一步执行顺序
+
+下一阶段不再改大方向，优先把正式环境跑通：
+
+1. 在云服务器部署 PostgreSQL 和 `freshos-worker`。
+2. 配置 Hermes 拉取 GitHub `v1.1` 版本。
+3. 用正式大表哥 40/42 数据跑通基础导入。
+4. 用12点实时销售数据跑通 `sales_cutoff_snapshots`。
+5. 回测12点预测和人工订货差异。
+6. 生成真实订货建议、库存风险和导入异常报表。
+7. 接入企业微信/飞书正式 webhook。
+
 ## 一、项目定位
 
 ### 项目名称
@@ -588,11 +791,11 @@ V1建议只保留以下核心能力：
 5. 订货建议
 6. 风险提醒
 
-### V1每日运行闭环
+### V1/V1.1 每日运行闭环
 
 ```text
-每天早上：
-系统给出订货建议
+每天12:00：
+系统生成次日订货建议
 
 每天营业中：
 系统发现缺货、高库存、滞销、临期等风险
@@ -676,3 +879,329 @@ FreshOS具备现实可行性和商业价值。
 
 但第一阶段必须避免“大而全AI系统”的陷阱，建议先用规则引擎跑通库存经营闭环，再逐步引入预测、动态定价、员工执行和AI学习。
 
+## 十一、V1.1 开发版总纲修订
+
+### 1. V1.1 实现形态
+
+V1.1 不优先做完整 Web 后台，先做云端自动订货助手。
+
+当前实现形态：
+
+```text
+云服务器 freshos-worker
+  ↓
+Hermes 定时执行
+  ↓
+自动抓取/导入大表哥和订单数据
+  ↓
+FreshOS 计算订货建议和库存风险
+  ↓
+生成 CSV/XLSX 明细
+  ↓
+企业微信/飞书推送摘要和附件
+```
+
+职责划分：
+
+| 模块 | 职责 |
+| --- | --- |
+| Hermes | 定时调度和执行任务 |
+| freshos-worker | 抓取、导入、清洗、匹配、计算、生成文件、推送 |
+| PostgreSQL | 存储基础数据、导入数据、计算结果、任务日志 |
+| 企业微信/飞书 | 推送每日结果、异常提醒、附件 |
+| CSV/XLSX | 承载订货建议、库存风险、导入异常明细 |
+
+### 2. V1.1 核心闭环
+
+```text
+Hermes 12:00 定时触发
+  ↓
+抓取大表哥基础数据、销售、库存、损耗、收货、12点实时销售
+  ↓
+导入生鲜订单和人工盘点修正
+  ↓
+匹配门店和商品
+  ↓
+计算库存口径
+  ↓
+计算 12点趋势修正销量预测
+  ↓
+计算预计到货前库存
+  ↓
+生成订货建议
+  ↓
+生成库存风险
+  ↓
+推送企业微信/飞书
+```
+
+### 3. V1.1 数据来源
+
+当前确认的数据来源：
+
+| 数据 | 来源 | 用途 |
+| --- | --- | --- |
+| 门店、商品、门店商品 | 大表哥基础数据 | 建立主档和订货参数 |
+| 最近7/14/30天日销售 | 大表哥销售日汇总 | 基础销量预测 |
+| 历史0-12点销售 | 大表哥实时销售 | 计算历史12点销量占比 |
+| 今日0-12点销售 | 大表哥实时销售 | 计算今日趋势 |
+| 昨日期末库存 | 大表哥库存/损耗日汇总 | 估算12点库存 |
+| 今日在途/到货 | 大表哥实时报表/订单导入 | 修正到货前库存 |
+| 生鲜订单 | 水果/蔬菜订单 Excel | 到货日期和到货数量 |
+| 人工盘点修正 | 人工修正模板 | 修正库存可信度 |
+
+### 4. V1.1 关键表
+
+V1.1 在原 V1 表基础上，明确以下关键表：
+
+- `stores`
+- `products`
+- `store_products`
+- `sales_daily`
+- `sales_cutoff_snapshots`
+- `inventory_snapshots`
+- `inventory_loss_daily`
+- `purchase_receipts_daily`
+- `fresh_order_imports`
+- `stock_count_adjustments`
+- `inventory_positions`
+- `inventory_age_batches`
+- `sales_forecasts`
+- `order_suggestions`
+- `inventory_risks`
+- `import_exceptions`
+- `job_runs`
+
+其中：
+
+```text
+sales_cutoff_snapshots
+```
+
+用于保存 12点实时销售、12点库存和在途数量。
+
+### 5. V1.1 12点预测公式
+
+#### 明天基础预测销量
+
+```text
+base_forecast_qty =
+最近7天有效销售日均
+  ↓ 不足3天
+最近14天有效销售日均
+  ↓ 不足3天
+大表哥 recent_daily_sales
+  ↓ 不足
+0
+```
+
+#### 历史12点销量占比
+
+```text
+historical_noon_ratio =
+历史0-12点累计销量 / 历史全天销量
+```
+
+按门店 + 商品计算。
+
+如果：
+
+```text
+historical_noon_ratio < 20%
+```
+
+则不启用12点趋势修正。
+
+#### 预计今天全天销量
+
+启用12点趋势修正时：
+
+```text
+projected_today_sales_qty =
+today_noon_sales_qty / historical_noon_ratio
+```
+
+不启用时：
+
+```text
+projected_today_sales_qty =
+base_forecast_qty
+```
+
+#### 今日趋势系数
+
+```text
+today_trend_factor =
+projected_today_sales_qty / base_forecast_qty
+```
+
+如果 `base_forecast_qty = 0`：
+
+```text
+today_trend_factor = 1
+```
+
+#### 明天趋势修正系数
+
+```text
+forecast_adjustment_factor =
+clamp(
+  1 + (today_trend_factor - 1) × 0.2,
+  0.9,
+  1.1
+)
+```
+
+即：12点趋势只做轻量修正，最多上下浮动10%。
+
+#### 明天预测销量
+
+```text
+forecast_qty =
+base_forecast_qty × forecast_adjustment_factor
+```
+
+### 6. V1.1 预计到货前库存
+
+12点出次日订货建议时，不能只用当前库存，还要估算今天剩余销售会消耗多少库存。
+
+```text
+expected_remaining_today_sales_qty =
+max(projected_today_sales_qty - today_noon_sales_qty, 0)
+```
+
+```text
+expected_today_loss_qty =
+projected_today_sales_qty × historical_loss_rate
+```
+
+V1.1 当前损耗率没有稳定数据时，先按0处理。
+
+```text
+expected_inventory_at_arrival =
+current_inventory_qty
+- expected_remaining_today_sales_qty
+- expected_today_loss_qty
++ pending_arrival_qty
+```
+
+其中：
+
+- `current_inventory_qty`：12点库存估算值。
+- `pending_arrival_qty`：今日在途或已订未到数量。
+- 如果 12点库存不可用，回退 `inventory_positions.corrected_inventory_qty`。
+
+### 7. V1.1 订货建议公式
+
+```text
+safety_stock_qty =
+max(
+  forecast_qty × safety_stock_days,
+  sales_stddev
+)
+```
+
+```text
+loss_compensation_qty =
+forecast_qty × historical_loss_rate
+```
+
+当前损耗率没有稳定数据时，先按0处理。
+
+```text
+raw_order_qty =
+forecast_qty
++ safety_stock_qty
++ loss_compensation_qty
+- expected_inventory_at_arrival
+- pending_order_qty
+```
+
+```text
+raw_order_qty = max(raw_order_qty, 0)
+```
+
+再做经营参数修正：
+
+```text
+如果不可订货 → 订货量 = 0
+如果不可销售 → 订货量 = 0
+如果有最小订货量 → 不低于 min_order_qty
+如果有订货批量 → 向上取整到 order_batch_qty
+```
+
+最终：
+
+```text
+suggested_order_qty =
+round_batch(max(raw_order_qty, 0))
+```
+
+### 8. V1.1 已完成开发内容
+
+当前 `freshos-worker` 已完成：
+
+- PostgreSQL schema 草案。
+- Hermes 任务入口。
+- 订单 Excel 解析：
+  - 水果订单
+  - 蔬菜供应商模板
+- 订单导入 `fresh_order_imports`。
+- 门店/商品匹配回填。
+- 大表哥基础数据导入：
+  - `stores`
+  - `products`
+  - `store_products`
+- 大表哥日数据导入骨架：
+  - `sales_daily`
+  - `inventory_loss_daily`
+  - `purchase_receipts_daily`
+  - `inventory_snapshots`
+  - `sales_cutoff_snapshots`
+- 库存口径、库存年龄、销量预测、订货建议、库存风险的计算任务骨架。
+- 企业微信/飞书 webhook 推送接口。
+- v1.1 12点趋势修正预测逻辑。
+- v1.1 预计到货前库存订货逻辑。
+
+当前代码版本：
+
+```text
+v1.1
+```
+
+GitHub：
+
+```text
+https://github.com/kangpinghb-gif/fnlshop.git
+```
+
+### 9. V1.1 仍待验证的数据
+
+V1.1 代码逻辑已经完成，但仍需用正式大表哥数据验证：
+
+- 40/42 商品基础导出。
+- 最近30天销售日汇总。
+- 历史0-12点实时销售。
+- 今日0-12点实时销售。
+- 昨日期末库存。
+- 今日在途/到货数量。
+- 损耗/报损数据。
+
+正式数据回来后，需要做：
+
+1. 补齐大表哥真实字段别名。
+2. 验证基础导入行数。
+3. 验证订单商品匹配率。
+4. 回测基础预测和12点修正预测。
+5. 对比建议订货量与人工订货量、次日实际销量。
+
+### 10. V1.1 下一阶段优先级
+
+下一阶段优先做：
+
+1. 在云服务器部署 PostgreSQL 和 `freshos-worker`。
+2. 配置 Hermes 拉取 `v1.1`。
+3. 用正式大表哥 40/42 数据跑通导入。
+4. 用 12点实时销售数据跑通 `sales_cutoff_snapshots`。
+5. 生成真实订货建议和库存风险报表。
+6. 接入企业微信/飞书正式 webhook。

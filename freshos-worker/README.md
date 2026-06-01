@@ -1,17 +1,17 @@
 # freshos-worker
 
-FreshOS V1 云端自动订货助手。
+FreshOS V1.1 云端自动订货助手。
 
 第一版目标：
 
 ```text
-Hermes 自动导出大表哥 40/42 数据
+Hermes 12:00 自动导出大表哥 40/42 数据和实时销售
   ↓
 Hermes 触发 freshos-worker
   ↓
 导入订单 / 盘点 / Hermes 导出文件
   ↓
-计算库存口径、销量预测、订货建议、库存风险
+计算库存口径、12点趋势修正预测、预计到货前库存、订货建议、库存风险
   ↓
 生成报表
   ↓
@@ -91,17 +91,20 @@ python -m jobs.export_reports --config config/settings.toml --business-date 2026
 ## 本地运行每日任务链
 
 ```bash
-python -m jobs.run_daily --config config/settings.example.toml --business-date 2026-05-25
+python -m jobs.run_daily --config config/settings.example.toml --business-date 2026-06-02
 ```
 
-当前版本是骨架实现：会生成空报表并打印占位任务。接入真实数据后，job 会逐步替换为真实抓取、导入、计算和推送。
+`jobs.fetch_dabiaoge` 不负责登录大表哥。登录、筛选和导出由 Hermes 完成；worker 负责检查当日必需导出文件是否已经落到 `settings.paths.data_dir`。如果文件缺失，任务会失败并提示缺少的报表类型。
+
+`jobs.run_daily` 会按业务日期从 `settings.paths.data_dir` 自动匹配大表哥导出文件，并把匹配到的文件传给对应导入任务。
 
 ## 单独运行任务
 
 ```bash
-python -m jobs.fetch_dabiaoge --business-date 2026-05-25
+python -m jobs.fetch_dabiaoge --business-date 2026-06-02
 python -m jobs.import_dabiaoge_base --business-date 2026-05-25 --input "../data_samples/dabiaoge_stores_products_base_dom.csv"
 python -m jobs.import_dabiaoge_daily --business-date 2026-05-25 --report-type sales --input "../data_samples/sales_daily.csv"
+python -m jobs.import_dabiaoge_daily --business-date 2026-05-25 --report-type cutoff_sales --input "../data_samples/cutoff_sales.csv"
 python -m jobs.import_orders --business-date 2026-05-25 --input "../样表/宝信润山店.xlsx" --input "../样表/5.25水果订单(2).xlsx"
 python -m jobs.match_order_imports --business-date 2026-05-25
 python -m jobs.calculate_inventory --business-date 2026-05-25
@@ -114,7 +117,7 @@ python -m jobs.notify --business-date 2026-05-25
 
 `import_dabiaoge_base` 支持无表头 DOM CSV、带表头 CSV、XLSX/XLSM，默认只导入大分类编码 `40/42`。
 
-`import_dabiaoge_daily` 支持带表头 CSV、XLSX/XLSM，可导入 `sales`、`inventory_loss`、`purchase_receipts`、`inventory_snapshot`。如果原始文件缺少日期字段，会使用 `--business-date`；同一门店、商品、日期的重复行会先合并为日汇总再输出或入库。
+`import_dabiaoge_daily` 支持带表头 CSV、XLSX/XLSM，可导入 `sales`、`inventory_loss`、`purchase_receipts`、`inventory_snapshot`、`cutoff_sales`。如果原始文件缺少日期字段，会使用 `--business-date`；同一门店、商品、日期的重复行会先合并为日汇总再输出或入库。
 
 `import_stock_adjustments` 支持人工盘点修正模板 CSV、XLSX/XLSM。数据库开启时会按门店编码/名称、商品编码/名称匹配并写入 `stock_count_adjustments`；无法匹配的数据写入 `import_exceptions`。数据库关闭时输出 CSV。
 
@@ -124,25 +127,29 @@ python -m jobs.notify --business-date 2026-05-25
 
 | 时间 | 任务 |
 | --- | --- |
-| 06:00 | `python -m jobs.fetch_dabiaoge` |
-| 06:10 | `python -m jobs.import_dabiaoge_base` |
-| 06:15 | `python -m jobs.import_dabiaoge_daily --report-type sales` |
-| 06:16 | `python -m jobs.import_dabiaoge_daily --report-type inventory_loss` |
-| 06:17 | `python -m jobs.import_dabiaoge_daily --report-type purchase_receipts` |
-| 06:18 | `python -m jobs.import_dabiaoge_daily --report-type inventory_snapshot` |
-| 06:20 | `python -m jobs.import_orders` |
-| 06:25 | `python -m jobs.match_order_imports` |
-| 06:40 | `python -m jobs.calculate_inventory` |
-| 06:50 | `python -m jobs.forecast_sales` |
-| 07:00 | `python -m jobs.generate_order_suggestions` |
-| 07:05 | `python -m jobs.generate_inventory_risks` |
-| 07:10 | `python -m jobs.export_reports && python -m jobs.notify` |
+| 12:00 | Hermes 导出大表哥基础、销售、库存损耗、收货、12点实时销售文件 |
+| 12:05 | `python -m jobs.fetch_dabiaoge` |
+| 12:10 | `python -m jobs.import_dabiaoge_base` |
+| 12:15 | `python -m jobs.import_dabiaoge_daily --report-type sales` |
+| 12:16 | `python -m jobs.import_dabiaoge_daily --report-type inventory_loss` |
+| 12:17 | `python -m jobs.import_dabiaoge_daily --report-type purchase_receipts` |
+| 12:18 | `python -m jobs.import_dabiaoge_daily --report-type inventory_snapshot` |
+| 12:19 | `python -m jobs.import_dabiaoge_daily --report-type cutoff_sales` |
+| 12:20 | `python -m jobs.import_orders` |
+| 12:25 | `python -m jobs.match_order_imports` |
+| 12:30 | `python -m jobs.import_stock_adjustments` |
+| 12:35 | `python -m jobs.calculate_inventory` |
+| 12:40 | `python -m jobs.forecast_sales` |
+| 12:45 | `python -m jobs.generate_order_suggestions` |
+| 12:48 | `python -m jobs.generate_inventory_risks` |
+| 12:50 | `python -m jobs.export_reports && python -m jobs.notify` |
 
 ## 下一步
 
-1. 配置 Hermes 将大表哥 40/42 导出文件写入 `/var/lib/freshos/data/`。
-2. 用正式 Hermes 导出文件补齐日数据字段别名。
-3. 验证正式门店 / 商品 / 门店商品关系导入。
-4. 验证正式销售、库存、订货、收货、订单、盘点数据导入。
-5. 将 CSV 报表升级为 XLSX 报表。
-6. 接入企业微信/飞书 webhook。
+1. 配置 Hermes 将大表哥 40/42 和 12点实时销售导出文件写入 `/var/lib/freshos/data/`。
+2. 用 `jobs.fetch_dabiaoge` 检查当日必需文件是否齐全。
+3. 用正式 Hermes 导出文件补齐日数据字段别名。
+4. 验证正式门店 / 商品 / 门店商品关系导入。
+5. 验证正式销售、库存、订货、收货、12点实时销售、订单、盘点数据导入。
+6. 将 CSV 报表升级为 XLSX 报表。
+7. 接入企业微信/飞书 webhook。

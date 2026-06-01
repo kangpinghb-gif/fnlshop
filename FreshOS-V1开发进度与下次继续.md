@@ -1,28 +1,204 @@
-# FreshOS V1 开发进度与下次继续
+# FreshOS V1 / V1.1 开发进度与下次继续
 
-更新时间：2026-05-27
+更新时间：2026-06-02
 
 ## 一、当前实现方向
 
-V1 采用云端自动订货助手形态：
+V1.1 采用云端自动订货助手形态，核心口径已从“早晨出建议”调整为“每天12:00生成次日订货建议”：
 
 ```text
 云服务器 freshos-worker
   ↓
-Hermes 自动导出大表哥 40/42 数据
+Hermes 12:00 自动导出/抓取大表哥 40/42 数据和实时销售数据
   ↓
 Hermes 触发 freshos-worker 导入订单 / 盘点 / 大表哥导出文件
   ↓
-FreshOS 计算订货建议和库存风险
+FreshOS 计算12点趋势修正预测、预计到货前库存、订货建议和库存风险
   ↓
 生成 Excel/CSV 明细
   ↓
 企业微信/飞书推送摘要和附件
 ```
 
-第一阶段不优先做完整 Web 后台。
+第一阶段不优先做完整 Web 后台。当前以 `freshos-worker`、PostgreSQL、Hermes、CSV/XLSX 报表、企业微信/飞书 webhook 组成最小闭环。
 
-## 二、今天完成的开发
+## 二、当前状态快照
+
+当前代码已经进入 V1.1：
+
+```text
+v1.1
+```
+
+当前主线提交：
+
+```text
+0329ea5 feat: add v1.1 noon trend ordering
+```
+
+当前已完成的闭环能力：
+
+- PostgreSQL schema 草案和迁移脚本。
+- Hermes / systemd 可执行任务入口。
+- 生鲜订单 Excel 解析、导入、幂等写入。
+- 人工盘点修正模板解析和导入。
+- 大表哥基础数据导入：
+  - `stores`
+  - `products`
+  - `store_products`
+- 大表哥日数据导入：
+  - `sales_daily`
+  - `inventory_loss_daily`
+  - `purchase_receipts_daily`
+  - `inventory_snapshots`
+  - `sales_cutoff_snapshots`
+- 门店 / 商品匹配回填和导入异常记录。
+- 库存口径计算：
+  - 实时库存快照
+  - 期末库存
+  - 理论库存
+  - 人工盘点修正
+- 库存年龄批次计算：
+  - 到货批次
+  - FIFO 消耗
+  - 可售天数
+  - 临期 / 过期状态
+- 销量预测：
+  - 最近7天有效日均
+  - 最近14天有效日均
+  - 大表哥 recent_daily_sales 回退
+  - 12点实时销售趋势修正
+- 订货建议：
+  - 安全库存
+  - 已订未到
+  - 最小订货量
+  - 订货批量圆整
+  - 预计到货前库存
+  - 商品名称包含 `折` 或等于 `D系统用代表商品` 时不计入常规订货
+- 库存风险：
+  - 负库存
+  - 缺货
+  - 高库存
+  - 临期 / 过期
+  - 高损耗
+- 每日报表导出：
+  - 订货建议明细
+  - 库存风险明细
+  - 导入异常明细
+- 企业微信 / 飞书 webhook 推送摘要。
+- 阿里云 ECS 部署文档、配置样例和 systemd 文件。
+
+当前开发重点已经从“补齐代码骨架”转为：
+
+```text
+云服务器部署 + Hermes 拉齐 v1.1 + 正式大表哥数据验证
+```
+
+## 三、最新验证命令
+
+进入项目目录：
+
+```bash
+cd /Users/kangping/Documents/生鲜AI自动订货系统/freshos-worker
+```
+
+运行测试：
+
+```bash
+python3 -m pytest -q
+```
+
+当前结果：
+
+```text
+36 passed
+```
+
+本地无数据库时，仍可用示例配置跑任务链，数据库任务会安全跳过：
+
+```bash
+python3 -m jobs.run_daily \
+  --config config/settings.example.toml \
+  --business-date 2026-05-26
+```
+
+生产环境完整任务链使用：
+
+```bash
+python3 -m jobs.run_daily \
+  --config /etc/freshos/settings.toml \
+  --business-date YYYY-MM-DD
+```
+
+## 四、当前限制和待验证项
+
+当前代码逻辑已经完成到 V1.1，但仍未用正式线上大表哥数据和真实 PostgreSQL 环境完成端到端验证。
+
+仍待验证：
+
+1. PostgreSQL 生产库迁移是否能在阿里云 ECS 上完整执行。
+2. 大表哥 `40/42` 基础导出是否能完整导入：
+   - `stores`
+   - `products`
+   - `store_products`
+3. 最近30天销售日汇总是否能稳定导入 `sales_daily`。
+4. 历史0-12点实时销售是否能写入 `sales_cutoff_snapshots`，并形成可靠 `historical_noon_ratio`。
+5. 今日0-12点销售、12点库存、今日在途数量是否能支持 `expected_inventory_at_arrival`。
+6. 生鲜订单 Excel 和大表哥商品主档的商品匹配率是否足够高。
+7. 订货建议是否能和人工订货量、次日实际销量做回测对比。
+8. 企业微信 / 飞书 webhook 是否能在正式环境推送摘要和报表路径。
+
+当前已知风险：
+
+- 大表哥正式导出字段可能和样本字段不同，需要补字段别名。
+- `40/42` 分类口径需要用正式数据确认，避免漏导或误导商品。
+- 12点趋势修正依赖历史0-12点销售，如果历史样本不足，会退回基础预测。
+- 商品可售天数仍需要按商品属性维护，否则库存年龄和积压判断只能按默认口径估算。
+- 损耗率数据暂不稳定，V1.1 损耗补偿和预计今日损耗先按0处理。
+
+## 五、下次继续的第一步
+
+下次优先做：
+
+```text
+在云服务器部署 PostgreSQL 和 freshos-worker，并让 Hermes 拉齐 GitHub v1.1
+```
+
+原因：
+
+- 本地代码和单元测试已经通过。
+- V1.1 的核心公式和任务入口已经完成。
+- 下一步的真实风险不在代码骨架，而在正式数据字段、云服务器配置、Hermes 执行链路和推送链路。
+
+## 六、下次建议执行顺序
+
+1. 在阿里云 ECS 安装并初始化 PostgreSQL。
+2. 部署 `freshos-worker`。
+3. 配置 `/etc/freshos/settings.toml`。
+4. 执行迁移：
+
+```bash
+python3 scripts/apply_migrations.py \
+  --config /etc/freshos/settings.toml
+```
+
+5. 配置 Hermes 拉取 GitHub `v1.1`。
+6. 用正式大表哥 `40/42` 基础导出跑 `import_dabiaoge_base`。
+7. 用正式日销售、库存、到货、12点实时销售跑 `import_dabiaoge_daily`。
+8. 导入生鲜订单和人工盘点修正。
+9. 跑完整每日任务链。
+10. 检查三份报表：
+    - `order_suggestions_YYYY-MM-DD.csv`
+    - `inventory_risks_YYYY-MM-DD.csv`
+    - `import_exceptions_YYYY-MM-DD.csv`
+11. 根据导入异常补字段别名和商品匹配规则。
+12. 将第一轮订货建议和人工订货、次日实际销量做回测。
+
+## 七、历史开发记录说明
+
+以下内容为 2026-05-27 起的逐步开发流水，保留用于追溯每一步从骨架到 V1.1 的演进。若与上方“当前状态快照”冲突，以上方当前状态为准。
+
+## 八、2026-05-27 初始开发记录
 
 ### 1. freshos-worker 项目骨架
 
@@ -153,7 +329,7 @@ fresh_order_imports
 - 匹配失败写入：
   - `import_exceptions`
 
-## 三、验证命令
+## 九、2026-05-27 初始验证命令
 
 进入项目目录：
 
@@ -192,7 +368,7 @@ python3 -m jobs.run_daily \
   --business-date 2026-05-26
 ```
 
-## 四、当前限制
+## 十、2026-05-27 当时限制
 
 当前还没有接入真实 PostgreSQL。
 
@@ -217,7 +393,7 @@ python3 -m jobs.run_daily \
 - 大表哥库存/损耗导入
 - 大表哥订货/收货导入
 
-## 五、下次继续的第一步
+## 十一、2026-05-27 当时下次继续的第一步
 
 下次优先做：
 
@@ -240,7 +416,7 @@ store_products
 - 但数据库里还没有门店和商品档案可匹配。
 - 必须先导入基础档案，后续库存、销量、订货建议才能继续。
 
-## 六、下次建议开发顺序
+## 十二、2026-05-27 当时建议开发顺序
 
 1. 读取大表哥 DOM 样本或正式导出文件。
 2. 建立带表头字段映射。
@@ -254,7 +430,7 @@ store_products
    - `match_order_imports`
 6. 确认订单商品能匹配到 `products`。
 
-## 八、2026-05-27 继续开发记录
+## 十三、2026-05-27 大表哥基础数据导入记录
 
 已按“大表哥基础数据导入”方向继续补齐：
 
@@ -314,7 +490,7 @@ stores=0 products=0 store_products=0
    - `match_order_imports`
    确认订单商品能匹配到 `products`。
 
-## 九、2026-05-27 日数据导入继续开发记录
+## 十四、2026-05-27 日数据导入继续开发记录
 
 在没有正式大表哥 `40/42` 导出文件的情况下，继续推进不依赖正式数据的 P3 开发：大表哥日数据导入。
 
@@ -353,7 +529,7 @@ sales_quantity=10.0
 sales_amount=50.0
 ```
 
-## 十、2026-05-27 计算链路继续开发记录
+## 十五、2026-05-27 计算链路继续开发记录
 
 继续推进 V1 最小闭环中不依赖正式导出文件的计算任务，将原占位 job 接入真实数据库计算入口。
 
@@ -392,7 +568,7 @@ python3 -m jobs.run_daily --config config/settings.example.toml --business-date 
 当前结果：任务链跑通，本地无数据库时 DB 计算任务安全跳过
 ```
 
-## 十一、2026-05-27 报表导出继续开发记录
+## 十六、2026-05-27 报表导出继续开发记录
 
 继续补齐 V1 最小闭环最后一段：将计算结果导出为每日文件。
 
@@ -422,7 +598,7 @@ python3 -m jobs.export_reports --config config/settings.example.toml --business-
 当前结果：本地无数据库时成功输出空模板
 ```
 
-## 十二、2026-05-27 最小闭环种子数据记录
+## 十七、2026-05-27 最小闭环种子数据记录
 
 为下一步 PostgreSQL 集成验证补齐可重复执行的最小闭环数据。
 
@@ -470,7 +646,7 @@ PYTHONPYCACHEPREFIX=/private/tmp/freshos_pycache python3 -m py_compile \
 当前结果：通过
 ```
 
-## 十三、2026-05-27 阿里云部署准备记录
+## 十八、2026-05-27 阿里云部署准备记录
 
 确认目标部署环境为阿里云 ECS 服务器，不按本机 Docker 作为主要部署路径。
 
@@ -504,7 +680,7 @@ PYTHONPYCACHEPREFIX=/private/tmp/freshos_pycache python3 -m py_compile \
 当前结果：通过
 ```
 
-## 十四、2026-05-27 工具使用方式补齐记录
+## 十九、2026-05-27 工具使用方式补齐记录
 
 检查《FreshOS-V1开发实施计划.md》后确认：原计划说明了 V1 形态、Hermes 调度、任务清单、报表和推送，但没有完整说明业务人员和系统维护人员如何使用工具。
 
@@ -529,7 +705,7 @@ PYTHONPYCACHEPREFIX=/private/tmp/freshos_pycache python3 -m py_compile \
 - 当前 V1 不做的使用方式
 - 判断工具是否正常运行的检查清单
 
-## 十五、2026-05-27 人工盘点修正导入开发记录
+## 二十、2026-05-27 人工盘点修正导入开发记录
 
 按 V1 最小闭环继续补齐 `import_stock_adjustments`，该任务原先仍是占位。
 
@@ -569,7 +745,7 @@ python3 -m jobs.import_stock_adjustments \
 当前结果：解析 1 行并成功输出 CSV
 ```
 
-## 十六、2026-05-27 库存年龄计算开发记录
+## 二十一、2026-05-27 库存年龄计算开发记录
 
 按总纲“库存数量不重要，库存年龄更重要”的方向，补齐 `inventory_age_batches` 计算入口。
 
@@ -604,7 +780,7 @@ python3 -m jobs.calculate_inventory --config config/settings.example.toml --busi
 当前结果：本地无数据库时安全跳过
 ```
 
-## 十七、2026-05-27 导入异常报表开发记录
+## 二十二、2026-05-27 导入异常报表开发记录
 
 继续补齐 V1 每日报表输出，增加“导入异常明细”。
 
@@ -633,7 +809,7 @@ python3 -m jobs.export_reports --config config/settings.example.toml --business-
   - import_exceptions_2026-05-26.csv
 ```
 
-## 十八、2026-05-27 每日推送摘要开发记录
+## 二十三、2026-05-27 每日推送摘要开发记录
 
 继续补齐 V1 最小闭环最后一步：企业微信 / 飞书推送摘要。
 
@@ -667,7 +843,7 @@ python3 -m jobs.notify --config config/settings.example.toml --business-date 202
 当前结果：本地 provider=none 时打印每日摘要，不发送 webhook
 ```
 
-## 十九、相关文档
+## 二十四、相关文档
 
 - `FreshOS-生鲜AI经营系统总纲.md`
 - `FreshOS-V1多门店产品需求与数据表设计.md`
@@ -676,3 +852,199 @@ python3 -m jobs.notify --config config/settings.example.toml --business-date 202
 - `FreshOS-V1工具使用方式与业务操作流程.md`
 - `FreshOS-项目总控文档.md`
 - `freshos-worker/README.md`
+
+## 二十五、2026-06-02 V1.1 开发进度更新
+
+本阶段已按最新总纲完成 V1.1 口径调整：每天12:00出次日订货建议，使用实时销售做轻量趋势修正，并使用预计到货前库存替代简单当前库存参与订货计算。
+
+### 1. 当前版本状态
+
+当前代码版本：
+
+```text
+v1.1
+```
+
+GitHub 当前主分支记录：
+
+```text
+0329ea5 feat: add v1.1 noon trend ordering
+```
+
+当前重点已经从“补齐最小闭环代码”转为“用正式大表哥数据和云服务器环境验证闭环”。
+
+### 2. V1.1 已完成内容
+
+已完成：
+
+- 新增 `sales_cutoff_snapshots`，用于保存12点实时销售、12点库存和在途数量。
+- 大表哥日数据导入支持 `cutoff_snapshot` / 12点实时快照类数据。
+- 销量预测支持12点趋势修正：
+  - 先按最近7天有效销售均值预测。
+  - 不足时回退最近14天。
+  - 再不足时回退大表哥 recent_daily_sales。
+  - 历史12点占比低于20%时，不启用趋势修正。
+  - 启用趋势修正时，修正幅度限制在 0.9 到 1.1。
+- 订货建议支持预计到货前库存：
+  - 当前12点库存。
+  - 减去预计今日剩余销售。
+  - 减去预计今日损耗。
+  - 加上今日在途/到货。
+- `order_suggestions` 增加 `expected_inventory_at_arrival` 口径。
+- 单元测试覆盖：
+  - 12点趋势修正启用。
+  - 历史12点占比过低时跳过修正。
+  - 预计到货前库存参与订货量计算。
+  - 12点实时快照导入解析。
+
+### 3. 最新验证结果
+
+已重新运行测试：
+
+```text
+cd /Users/kangping/Documents/生鲜AI自动订货系统/freshos-worker
+python3 -m pytest -q
+```
+
+当前结果：
+
+```text
+36 passed
+```
+
+### 4. 当前仍待正式数据验证
+
+代码逻辑已经完成，但还没有用正式线上大表哥数据做完整验证。下一步需要验证：
+
+1. 大表哥 40/42 商品基础导出是否能完整导入 `stores`、`products`、`store_products`。
+2. 最近30天销售日汇总是否能稳定导入 `sales_daily`。
+3. 历史0-12点实时销售是否能形成可靠 `historical_noon_ratio`。
+4. 今日0-12点实时销售是否能写入 `sales_cutoff_snapshots`。
+5. 昨日期末库存、12点实时库存、今日在途数量是否能支持 `expected_inventory_at_arrival`。
+6. 订货建议是否能和人工订货、次日实际销量做回测对比。
+7. 企业微信/飞书 webhook 是否能发送正式摘要和附件路径。
+
+### 5. 下一步继续任务
+
+下一步优先级：
+
+1. 在云服务器部署 PostgreSQL 和 `freshos-worker`。
+2. 配置 Hermes 拉取 GitHub `v1.1` 版本。
+3. 配置生产 `/etc/freshos/settings.toml`。
+4. 用正式大表哥 40/42 基础数据跑通导入。
+5. 用大表哥实时销售数据跑通12点快照导入。
+6. 跑完整每日任务链：
+
+```bash
+python3 -m jobs.run_daily \
+  --config /etc/freshos/settings.toml \
+  --business-date YYYY-MM-DD
+```
+
+7. 检查三份输出：
+   - `order_suggestions_YYYY-MM-DD.csv`
+   - `inventory_risks_YYYY-MM-DD.csv`
+   - `import_exceptions_YYYY-MM-DD.csv`
+
+8. 根据首轮正式数据结果补字段别名、修正匹配规则、调整商品参数。
+
+## 二十六、2026-06-02 文档归拢和清理记录
+
+本次检查了项目根目录、`data_samples/`、`freshos-worker/`、`freshos-worker/deploy/` 和 `freshos-worker/workspace/` 下的 Markdown 文件。
+
+### 1. 保留为主入口的文档
+
+以下文档保留，作为后续工作入口：
+
+- `FreshOS-项目总控文档.md`
+- `FreshOS-生鲜AI经营系统总纲.md`
+- `FreshOS-V1开发进度与下次继续.md`
+- `FreshOS-V1开发实施计划.md`
+- `FreshOS-V1工具使用方式与业务操作流程.md`
+
+其中：
+
+- 总控文档负责统一入口。
+- 总纲负责产品和公式口径。
+- 开发进度负责当前状态和下一步。
+- 实施计划负责执行顺序。
+- 工具使用流程负责业务和维护人员怎么操作。
+
+### 2. 保留为技术设计 / 操作依据的文档
+
+以下文档仍有独立价值，暂不删除：
+
+- `FreshOS-V1数据库与导入设计.md`
+- `FreshOS-V1多门店产品需求与数据表设计.md`
+- `FreshOS-V1阿里云服务器部署实操记录.md`
+- `freshos-worker/README.md`
+- `freshos-worker/deploy/ALIYUN_ECS_DEPLOY.md`
+- `data_samples/大表哥导出预设清单.md`
+- `data_samples/dabiaoge_stores_products_base_dom说明.md`
+- `skills/dabiaoge/SKILL.md`
+- `skills/dabiaoge/TEST_PLAN.md`
+- `skills/dabiaoge/GITHUB_DOWNLOAD.md`
+
+保留原因：
+
+- 数据库与多门店设计仍包含字段级历史设计。
+- 阿里云实操记录包含真实服务器踩坑。
+- worker README 和部署指南直接服务上线。
+- 大表哥样本说明和导出预设仍服务 Hermes 字段校验。
+- `skills/dabiaoge` 是自动化抓取能力说明，不属于 FreshOS 业务文档冗余。
+
+### 3. 已删除的无用 / 重复文档
+
+已删除：
+
+- `FreshOS-V1数据整理回顾.md`
+- `freshos-worker/workspace/order_qty_test_2026-05-28/README.md`
+
+删除原因：
+
+- `FreshOS-V1数据整理回顾.md` 是早期阶段性回顾，核心结论已经被总控、总纲、开发进度吸收。
+- `order_qty_test_2026-05-28/README.md` 是一次性测试暂存目录说明，测试口径已过期，当前 V1.1 以 12点实时销售和正式大表哥数据验证为准。
+
+### 4. 当前文档口径
+
+归拢后统一口径：
+
+- 当前版本为 `v1.1`。
+- 每天 12:00 生成次日订货建议。
+- 使用 0-12 点实时销售做轻量趋势修正。
+- 使用预计到货前库存参与订货。
+- 商品名称包含 `折` 或等于 `D系统用代表商品` 时，不计入常规订货建议。
+- 下一步是云服务器部署、Hermes 拉齐 `v1.1`、正式大表哥数据验证。
+
+## 二十七、2026-06-02 Hermes 导出文件检查开发记录
+
+检查已确定但未开发的项目后，确认 `jobs.fetch_dabiaoge` 仍是占位入口。由于大表哥登录、筛选和导出由 Hermes 负责，worker 不直接实现浏览器抓取；本次将该入口改成“当日必需导出文件检查”。
+
+已完成：
+
+- 新增 `freshos.importers.dabiaoge_fetch`。
+- `jobs.fetch_dabiaoge` 会检查 `settings.paths.data_dir` 下是否存在当日必需文件。
+- `jobs.run_daily` 会自动按业务日期从 `settings.paths.data_dir` 匹配大表哥文件，并传给对应导入任务。
+- 当前必需文件类型：
+  - 基础数据
+  - 销售日汇总
+  - 库存 / 损耗
+  - 订货 / 收货
+  - 12点实时销售
+- 如果缺文件，任务直接失败，并列出缺少的报表类型和期望文件名模式。
+- 更新 `freshos-worker/README.md`，同步 V1.1 的 12:00 Hermes 调度和 `cutoff_sales` 导入。
+
+验证结果：
+
+```text
+python3 -m pytest -q
+当前结果：39 passed
+```
+
+注意：
+
+```text
+fetch_dabiaoge 不负责登录大表哥。
+Hermes 负责导出文件。
+freshos-worker 负责检查文件是否齐全、导入、计算、报表和推送。
+```
