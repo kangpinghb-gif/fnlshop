@@ -60,6 +60,35 @@ def test_parse_inventory_loss_csv(tmp_path):
     assert rows[0].inventory_difference_qty == -0.5
 
 
+def test_parse_cutoff_sales_csv(tmp_path):
+    path = tmp_path / "cutoff.csv"
+    with path.open("w", encoding="utf-8-sig", newline="") as fh:
+        writer = csv.DictWriter(
+            fh,
+            fieldnames=["店铺编号", "商品编码", "日期", "0-12点销量", "12点库存", "在途数量", "截止时间"],
+        )
+        writer.writeheader()
+        writer.writerow(
+            {
+                "店铺编号": "10008",
+                "商品编码": "2014691",
+                "日期": "2026-05-25",
+                "0-12点销量": "9",
+                "12点库存": "20",
+                "在途数量": "5",
+                "截止时间": "12:00",
+            }
+        )
+
+    rows = parse_dabiaoge_daily_csv(path, report_type="cutoff_sales")
+
+    assert len(rows) == 1
+    assert rows[0].cutoff_sales_quantity == 9
+    assert rows[0].current_inventory_qty == 20
+    assert rows[0].in_transit_qty == 5
+    assert rows[0].cutoff_time == "12:00"
+
+
 def test_parse_daily_csv_uses_default_business_date(tmp_path):
     path = tmp_path / "sales_without_date.csv"
     with path.open("w", encoding="utf-8-sig", newline="") as fh:

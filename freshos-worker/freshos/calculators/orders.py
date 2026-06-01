@@ -11,12 +11,26 @@ class OrderSuggestion:
     reason: str
 
 
+def estimate_inventory_at_arrival(
+    *,
+    current_inventory_qty: float,
+    projected_today_sales_qty: float,
+    today_noon_sales_qty: float,
+    loss_rate: float = 0.0,
+    pending_arrival_qty: float = 0.0,
+) -> float:
+    expected_remaining_today_sales = max(projected_today_sales_qty - today_noon_sales_qty, 0.0)
+    expected_today_loss = max(projected_today_sales_qty * max(loss_rate, 0.0), 0.0)
+    return round(current_inventory_qty - expected_remaining_today_sales - expected_today_loss + pending_arrival_qty, 3)
+
+
 def calculate_order_suggestion(
     *,
     is_orderable: bool,
     is_sellable: bool,
     forecast_quantity: float,
     corrected_inventory_qty: float,
+    expected_inventory_at_arrival: float | None = None,
     safety_stock_days: float = 1.0,
     sales_stddev: float = 0.0,
     loss_rate: float = 0.0,
@@ -29,7 +43,8 @@ def calculate_order_suggestion(
     if not is_sellable:
         return OrderSuggestion(0.0, 0.0, "not_sellable")
 
-    order_inventory_qty = max(corrected_inventory_qty, 0.0)
+    inventory_for_order = corrected_inventory_qty if expected_inventory_at_arrival is None else expected_inventory_at_arrival
+    order_inventory_qty = max(inventory_for_order, 0.0)
     safety_stock_qty = max(forecast_quantity * safety_stock_days, sales_stddev)
     loss_compensation_qty = forecast_quantity * max(loss_rate, 0.0)
     raw = forecast_quantity + safety_stock_qty + loss_compensation_qty - order_inventory_qty - pending_arrival_qty

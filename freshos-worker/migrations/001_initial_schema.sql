@@ -79,6 +79,21 @@ CREATE TABLE IF NOT EXISTS sales_daily (
     UNIQUE (store_id, product_id, business_date)
 );
 
+CREATE TABLE IF NOT EXISTS sales_cutoff_snapshots (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    store_id uuid NOT NULL REFERENCES stores(id),
+    product_id uuid NOT NULL REFERENCES products(id),
+    business_date date NOT NULL,
+    cutoff_time time NOT NULL,
+    cutoff_sales_quantity numeric NOT NULL DEFAULT 0,
+    current_inventory_qty numeric,
+    in_transit_qty numeric,
+    unit varchar NOT NULL,
+    source_file varchar,
+    imported_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (store_id, product_id, business_date, cutoff_time)
+);
+
 CREATE TABLE IF NOT EXISTS inventory_snapshots (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     store_id uuid NOT NULL REFERENCES stores(id),
@@ -231,6 +246,11 @@ CREATE TABLE IF NOT EXISTS sales_forecasts (
     sales_days_used integer NOT NULL,
     recent_daily_sales numeric,
     sales_stddev numeric NOT NULL DEFAULT 0,
+    base_forecast_quantity numeric NOT NULL DEFAULT 0,
+    historical_noon_ratio numeric,
+    projected_today_sales_qty numeric,
+    today_trend_factor numeric NOT NULL DEFAULT 1,
+    forecast_adjustment_factor numeric NOT NULL DEFAULT 1,
     unit varchar NOT NULL,
     calculated_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (store_id, product_id, forecast_date)
@@ -244,6 +264,7 @@ CREATE TABLE IF NOT EXISTS order_suggestions (
     arrival_date date NOT NULL,
     forecast_quantity numeric NOT NULL,
     corrected_inventory_qty numeric NOT NULL,
+    expected_inventory_at_arrival numeric,
     sellable_inventory_qty numeric,
     overstock_qty numeric,
     safety_stock_qty numeric NOT NULL,

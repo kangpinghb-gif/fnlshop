@@ -27,6 +27,8 @@ def upsert_dabiaoge_daily(settings: Settings, rows: Sequence[DabiaogeDailyRow], 
                 _upsert_purchase_receipts(cur, values)
             elif report_type == "inventory_snapshot":
                 _upsert_inventory_snapshots(cur, values)
+            elif report_type == "cutoff_sales":
+                _upsert_cutoff_sales(cur, values)
             else:
                 raise ValueError(f"Unsupported report_type: {report_type}")
             return len(values)
@@ -172,3 +174,37 @@ def _upsert_inventory_snapshots(cur, values) -> None:
         ],
     )
 
+
+def _upsert_cutoff_sales(cur, values) -> None:
+    sql = """
+        INSERT INTO sales_cutoff_snapshots (
+            store_id, product_id, business_date, cutoff_time, cutoff_sales_quantity,
+            current_inventory_qty, in_transit_qty, unit, source_file
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (store_id, product_id, business_date, cutoff_time)
+        DO UPDATE SET
+            cutoff_sales_quantity = EXCLUDED.cutoff_sales_quantity,
+            current_inventory_qty = EXCLUDED.current_inventory_qty,
+            in_transit_qty = EXCLUDED.in_transit_qty,
+            unit = EXCLUDED.unit,
+            source_file = EXCLUDED.source_file,
+            imported_at = now()
+    """
+    cur.executemany(
+        sql,
+        [
+            (
+                store_id,
+                product_id,
+                row.business_date,
+                row.cutoff_time or "12:00",
+                row.cutoff_sales_quantity or 0,
+                row.current_inventory_qty,
+                row.in_transit_qty,
+                row.unit,
+                row.source_file,
+            )
+            for row, store_id, product_id in values
+        ],
+    )

@@ -9,7 +9,7 @@ from collections.abc import Iterable
 from openpyxl import load_workbook
 
 
-REPORT_TYPES = {"sales", "inventory_loss", "purchase_receipts", "inventory_snapshot"}
+REPORT_TYPES = {"sales", "inventory_loss", "purchase_receipts", "inventory_snapshot", "cutoff_sales"}
 
 
 ALIASES = {
@@ -28,7 +28,11 @@ ALIASES = {
     "total_receive_quantity": ["总收货数量", "总入库数量"],
     "total_return_quantity": ["总退货+调出数量", "退货数量", "调出数量"],
     "inventory_quantity": ["实时库存", "实时库存数量", "库存数量", "门店库存数量"],
+    "cutoff_sales_quantity": ["0-12点销量", "12点销量", "截止销量", "截止销售数量", "实时销售数量"],
+    "current_inventory_qty": ["12点库存", "当前库存", "实时库存", "实时库存数量"],
+    "in_transit_qty": ["在途数量", "在途库存", "今日在途"],
     "snapshot_time": ["快照时间", "导出时间", "库存时间"],
+    "cutoff_time": ["截止时间", "统计时间"],
 }
 
 
@@ -50,6 +54,10 @@ class DabiaogeDailyRow:
     total_receive_quantity: float | None = None
     total_return_quantity: float | None = None
     inventory_quantity: float | None = None
+    cutoff_sales_quantity: float | None = None
+    current_inventory_qty: float | None = None
+    in_transit_qty: float | None = None
+    cutoff_time: str = ""
     snapshot_time: str = ""
     inventory_source: str = ""
     source_file: str = ""
@@ -208,6 +216,10 @@ def _parse_row(
         total_receive_quantity=_to_float(_get(raw, field_map, "total_receive_quantity")),
         total_return_quantity=_to_float(_get(raw, field_map, "total_return_quantity")),
         inventory_quantity=_to_float(_get(raw, field_map, "inventory_quantity")),
+        cutoff_sales_quantity=_to_float(_get(raw, field_map, "cutoff_sales_quantity")),
+        current_inventory_qty=_to_float(_get(raw, field_map, "current_inventory_qty")),
+        in_transit_qty=_to_float(_get(raw, field_map, "in_transit_qty")),
+        cutoff_time=_get(raw, field_map, "cutoff_time") or "12:00",
         snapshot_time=_to_datetime_text(_get(raw, field_map, "snapshot_time")) or f"{business_date} 00:00:00",
         inventory_source="realtime" if report_type == "inventory_snapshot" else "",
         source_file=source_file,

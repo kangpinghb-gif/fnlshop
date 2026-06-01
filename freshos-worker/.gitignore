@@ -5,4 +5,4 @@ data/
 *.pyc
 .env
 config/settings.toml
-
+workspace/*/outputs/
